@@ -58,7 +58,7 @@ npm install
 | `docs/superpowers/specs/2026-11-03-openalbum-phase1-identity-auth-design.md` | 在 §4.1 写明 `credentialId` 必填。不改「状态：已定稿」行 |
 | `specs/phases/01-identity-auth.md` | 领域触点改为必填 `credentialId`。只有最后一个任务才把状态改成 `done` |
 | `specs/SPEC.md` | 只有最后一个任务才把阶段 1 的索引行改成 `done` |
-| `deploy/env.example` | `JWT_TTL=15m`，新增 `REFRESH_TTL=30d`，加长 pepper 占位符并注释双重用途与公网警告 |
+| `deploy/env.example` | `JWT_TTL=15m`，新增 `REFRESH_TTL=30d`。`JWT_SECRET` 与 `API_KEY_PEPPER` 的占位符都至少 32 字节。注释 pepper 双重用途与公网警告 |
 | `deploy/db/schema.sql` | 在身份段追加 `refresh_tokens` |
 | `deploy/README.md` | 写明没有限流不要公开注册和登录 |
 | `deploy/nginx.example.conf` | 同样的警告注释，不配置 `limit_req` |
@@ -150,16 +150,17 @@ npm install
 Run（仓库根目录）:
 
 ```bash
-rg -n "可选 \`credentialId\`" specs/phases/01-identity-auth.md docs/superpowers/specs/2026-11-03-openalbum-phase1-identity-auth-design.md
+rg -n -F '可选 `credentialId`' specs/phases/01-identity-auth.md docs/superpowers/specs/2026-11-03-openalbum-phase1-identity-auth-design.md
 ```
 
-Expected: 无输出，退出码 1。
+Expected: 无输出，退出码 1。`-F` 按字面量匹配，反引号不用再转义。
 
 ```bash
-rg -n "必填 \`credentialId\`|Principal.credentialId\` 在本阶段必填" specs/phases/01-identity-auth.md docs/superpowers/specs/2026-11-03-openalbum-phase1-identity-auth-design.md
+rg -n -F '必填 `credentialId`' specs/phases/01-identity-auth.md
+rg -n -F '`Principal.credentialId` 在本阶段必填' docs/superpowers/specs/2026-11-03-openalbum-phase1-identity-auth-design.md
 ```
 
-Expected: 两个文件各至少一行命中。
+Expected: 两条命令都有命中，退出码 0。
 
 - [ ] **Step 4: Commit**
 
@@ -313,8 +314,8 @@ export type { AuthConfig } from "./auth/config.js";
 
 ```bash
 # --- 鉴权 ---
-# 实际值必须至少 32 字节，否则进程拒绝启动。
-JWT_SECRET=CHANGE_ME_LONG_RANDOM
+# 占位符本身至少 32 字节。实际值短于 32 字节时进程拒绝启动。
+JWT_SECRET=CHANGE_ME_LONG_RANDOM_AT_LEAST_32_BYTES
 # Access JWT 有效期。生产默认 15m。只接受正整数加 s/m/d。
 JWT_TTL=15m
 # Refresh Token 有效期。生产默认 30d。语法同 JWT_TTL。
@@ -374,11 +375,26 @@ Run:
 
 ```bash
 npx tsx --test apps/api/test/auth-config.test.ts
-node --input-type=module -e "const p='CHANGE_ME_PEPPER_AT_LEAST_32_BYTES'; if (Buffer.byteLength(p)<32) process.exit(1)"
+node --input-type=module -e "
+import { readFileSync } from 'node:fs';
+const text = readFileSync('deploy/env.example', 'utf8');
+for (const name of ['JWT_SECRET', 'API_KEY_PEPPER']) {
+  const line = text.split('\n').find((item) => item.startsWith(name + '='));
+  if (!line) {
+    console.error('缺少 ' + name);
+    process.exit(1);
+  }
+  const bytes = Buffer.byteLength(line.slice(name.length + 1).trim());
+  if (bytes < 32) {
+    console.error(name + ' 只有 ' + bytes + ' 字节');
+    process.exit(1);
+  }
+}
+"
 rg -n "limit_req" deploy/nginx.example.conf
 ```
 
-Expected: 测试退出码 0，输出含 `# fail 0`。`node` 命令退出码 0。`rg limit_req` 无输出且退出码 1。
+Expected: 测试退出码 0，输出含 `# fail 0`。`node` 命令退出码 0，表示 `deploy/env.example` 里的 `JWT_SECRET` 与 `API_KEY_PEPPER` 都至少 32 字节。`rg limit_req` 无输出且退出码 1。
 
 - [ ] **Step 6: Commit**
 
@@ -788,7 +804,7 @@ export class ManualClock implements Clock {
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import test from "node:test";
-import { SignJWT } from "jose";
+import { SignJWT, decodeJwt } from "jose";
 import { createAccessTokenIssuer } from "../src/gateways/auth/access-token-issuer.js";
 import { createPasswordHasher } from "../src/gateways/auth/password-hasher.js";
 import { createSecretGenerator } from "../src/gateways/auth/secret-generator.js";
@@ -836,6 +852,9 @@ test("Access JWT 走注入时钟，cid 只存在令牌里", async () => {
   const token = await issuer.sign({ userId: "user-1", credentialId: "refresh-1" });
   const verified = await issuer.verify(token);
   assert.deepEqual(verified, { userId: "user-1", credentialId: "refresh-1", kind: "password_session" });
+  const decoded = decodeJwt(token);
+  assert.equal(decoded.iss, "openalbum");
+  assert.equal(decoded.aud, "openalbum-api");
 
   clock.advance(124_000);
   assert.deepEqual(await issuer.verify(token), verified);
@@ -848,19 +867,23 @@ test("Access JWT 走注入时钟，cid 只存在令牌里", async () => {
   assert.equal(await issuer.verify(tampered), null);
 });
 
-test("kind 不对或 alg=none 时拒绝", async () => {
+test("kind、iss、aud 不对或 alg=none 时拒绝", async () => {
   const clock = new ManualClock(START);
   const issuer = createAccessTokenIssuer({ secret: SECRET, ttlSeconds: 120, clock });
   const issuedAt = Math.floor(START.getTime() / 1000);
-  const badKind = await new SignJWT({ kind: "api_key", cid: "cid-1" })
-    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
-    .setIssuer("openalbum")
-    .setAudience("openalbum-api")
-    .setSubject("user-1")
-    .setIssuedAt(issuedAt)
-    .setExpirationTime(issuedAt + 120)
-    .sign(new TextEncoder().encode(SECRET));
-  assert.equal(await issuer.verify(badKind), null);
+  async function signed(overrides: { iss?: string; aud?: string; kind?: string }) {
+    return new SignJWT({ kind: overrides.kind ?? "password_session", cid: "cid-1" })
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setIssuer(overrides.iss ?? "openalbum")
+      .setAudience(overrides.aud ?? "openalbum-api")
+      .setSubject("user-1")
+      .setIssuedAt(issuedAt)
+      .setExpirationTime(issuedAt + 120)
+      .sign(new TextEncoder().encode(SECRET));
+  }
+  assert.equal(await issuer.verify(await signed({ kind: "api_key" })), null);
+  assert.equal(await issuer.verify(await signed({ iss: "other" })), null);
+  assert.equal(await issuer.verify(await signed({ aud: "other" })), null);
 
   const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
   const payload = Buffer.from(
@@ -2184,6 +2207,7 @@ git commit -m "feat: 实现身份用例与 resolvePrincipal"
 ```typescript
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { Writable } from "node:stream";
 import test from "node:test";
 import pg from "pg";
@@ -2314,7 +2338,7 @@ serial("非法邮箱和短密码返回固定句，邮箱问题优先", async () 
   assert.deepEqual(extra.json(), { error: { code: "validation_error", message: "请求不合法" } });
 });
 
-serial("鉴权路由日志不含原始请求体", async () => {
+serial("默认日志路径不含注册、登录、登出的秘密", async () => {
   await reset();
   const lines: string[] = [];
   const stream = new Writable({
@@ -2324,9 +2348,6 @@ serial("鉴权路由日志不含原始请求体", async () => {
     },
   });
   const local = await buildApp({ logger: { level: "info", stream }, config: testConfig, clock, pool });
-  local.addHook("preHandler", async (request) => {
-    request.log.info({ body: request.body }, "debug-body");
-  });
   const password = "pw-SENTINEL-7c1e";
   const registered = await local.inject({
     method: "POST",
@@ -2342,13 +2363,56 @@ serial("鉴权路由日志不含原始请求体", async () => {
   assert.equal(logs.includes(password), false);
   assert.equal(logs.includes(refreshToken), false);
   assert.equal(logs.includes(accessToken), false);
+  const routeSource = await readFile(new URL("../src/interfaces/http/register-auth.ts", import.meta.url), "utf8");
+  const errorSource = await readFile(new URL("../src/interfaces/http/error-handler.ts", import.meta.url), "utf8");
+  const loggerSource = await readFile(new URL("../src/interfaces/http/auth-logger.ts", import.meta.url), "utf8");
+  assert.equal(/\brequest\.log\s*[.(]/.test(routeSource), false);
+  assert.equal(/\breply\.log\s*[.(]/.test(routeSource), false);
+  assert.equal(errorSource.includes("request.body"), false);
+  for (const path of ["req.body", "body", "req.headers.authorization", "password", "refreshToken", "secret", "accessToken"]) {
+    assert.equal(loggerSource.includes(`"${path}"`), true, path);
+  }
+  await local.close();
+});
+
+serial("即使有人记录 body，redact 仍去掉明文", async () => {
+  await reset();
+  const lines: string[] = [];
+  const stream = new Writable({
+    write(chunk, _encoding, callback) {
+      lines.push(String(chunk));
+      callback();
+    },
+  });
+  const local = await buildApp({ logger: { level: "info", stream }, config: testConfig, clock, pool });
+  local.addHook("preHandler", async (request) => {
+    request.log.info({ body: request.body }, "debug-body");
+  });
+  const password = "pw-SENTINEL-body-9aa1";
+  const registered = await local.inject({
+    method: "POST",
+    url: "/auth/register",
+    payload: { email: "redact@example.com", password },
+  });
+  assert.equal(registered.statusCode, 201);
+  const refreshToken = String(registered.json().refreshToken);
+  await local.inject({ method: "POST", url: "/auth/logout", payload: { refreshToken } });
+  const logs = lines.join("\n");
+  assert.equal(logs.includes(password), false);
+  assert.equal(logs.includes(refreshToken), false);
+  assert.equal(logs.includes("[Redacted]"), true);
   await local.close();
 });
 ```
 
-本任务还没有 `/auth/logout`。日志用例里的 logout 请求会在实现完成前失败。Step 3 必须把 logout 路由也接上，因为它只是「收到字符串就撤销」，否则这条日志用例无法在本任务变绿。刷新路由留到 Task 8，本任务不要实现 `POST /auth/refresh`。
+本任务还没有 `/auth/logout`。两条日志用例都会打到登出，Step 3 必须把 logout 路由接上。刷新路由留到 Task 8，本任务不要实现 `POST /auth/refresh`。
 
-把日志用例里的 logout 调用保留。实现 logout 路由，但不要在本任务写刷新路由。
+日志契约：
+
+- 「默认日志路径」不额外 `log.info({ body })`。它证明 register、login、logout 在 Fastify 自己的请求/响应日志里不出现哨兵口令、Refresh Token 和 Access JWT。这条是主断言，不能只靠下一条兜底用例。
+- 路由处理函数禁止调用 `request.log` 或 `reply.log`，禁止把 `request.body` 交给 logger。错误处理器只记 URL，不记 `request.body`。
+- `auth-logger.ts` 的 `req` 序列化只含 `method` 与去掉 query 的 `url`，不读 body 或 headers。`res` 只含 `statusCode`。无论调用方传入 `true` 还是 logger 选项对象，都必须盖上 `REDACT`，并覆盖 `req` / `res` 序列化，避免调用方的 serializer 把 body 加回来。
+- 「即使有人记录 body」只锁 redact：有人主动记录 `{ body }` 时明文仍须变成 `[Redacted]`。它不能代替默认路径那条用例。
 
 - [ ] **Step 2: 启动数据库并确认测试失败**
 
@@ -2439,6 +2503,8 @@ export function authLoggerOptions(
 }
 ```
 
+`authLoggerOptions` 必须保持这段实现的强度，不要改弱：调用方传入 logger 选项时仍然使用上面的 `REDACT`，并覆盖 `req` / `res`。`req` 不得输出 body 或 headers。`res` 不得输出响应体。`REDACT.paths` 至少包含 `req.body`、`req.headers.authorization`、`body`、`password`、`refreshToken`、`secret`、`accessToken`，`censor` 为 `[Redacted]`。
+
 创建 `apps/api/src/interfaces/http/error-handler.ts`：
 
 ```typescript
@@ -2457,7 +2523,7 @@ export function registerErrorHandler(app: FastifyInstance): void {
 }
 ```
 
-`internal_error` 只用于未预期异常，业务路径不得返回它。错误日志只写 URL，不写 `error` 对象，避免校验器把请求体夹进 message。
+`internal_error` 只用于未预期异常，业务路径不得返回它。错误日志只写 URL，不写 `error` 对象，也不写 `request.body`，避免校验器或请求体把口令夹进日志。
 
 创建 `apps/api/src/interfaces/http/register-auth.ts`：
 
@@ -2482,6 +2548,7 @@ const refreshBody = {
 };
 
 export function registerAuthRoutes(app: FastifyInstance, deps: IdentityDeps): void {
+  // 禁止 request.log / reply.log，禁止把 request.body 交给 logger。
   app.post("/auth/register", { schema: { body: credentialsBody } }, async (request, reply) => {
     const body = request.body as { email: string; password: string };
     const parsed = parseCredentials(body);
@@ -2674,7 +2741,7 @@ npx tsc -p apps/api/tsconfig.json --noEmit
 node scripts/check-layer-boundaries.mjs
 ```
 
-Expected: 三者退出码都是 0。日志用例通过，说明哨兵口令和 Refresh Token 明文没有进入捕获到的日志。
+Expected: 三者退出码都是 0。默认日志用例在不注入 `log.info({ body })` 的情况下，register、login、logout 的日志不含哨兵口令、Refresh Token 和 Access JWT。redact 兜底用例仍能看到 `[Redacted]`，且不含另一组哨兵。
 
 - [ ] **Step 5: Commit**
 
@@ -2693,7 +2760,7 @@ git commit -m "feat: 提供注册登录路由并禁止记录原始请求体"
 
 **Interfaces:**
 - Consumes: `refreshSession(deps, refreshToken)`、`logoutSession`、Task 7 的 `app`、`pool`、`clock`、`serial`、`reset`、`registerUserHttp`、`tokenHash`、`testConfig`
-- Produces: `POST /auth/refresh`。成功 200，正文与登录相同。失败 401 `unauthorized` / 「未授权」。过期不写库。已撤销则撤销整个 family。并发第二次刷新也走连坐。
+- Produces: `POST /auth/refresh`。成功 200，正文与登录相同。失败 401 `unauthorized` / 「未授权」。过期不写库。已撤销则撤销整个 family。并发第二次刷新连坐时，胜者刚签发的新 Refresh Token 也必须失效。
 
 - [ ] **Step 1: 把失败测试追加到 identity-auth.test.ts**
 
@@ -2807,6 +2874,8 @@ serial("空的 refreshToken 是请求不合法", async () => {
 
 `familyOf`、`loginUserHttp`、`reset`、`tokenHash` 已在 Task 7 的测试文件里。本步骤只追加，不改它们的名字。
 
+并发双刷新时，胜出的 200 会签发新 Refresh Token，但失败的那一次按重放把整个 family 尚未撤销的行全部标上 `revoked_at`，其中包含胜者刚插入的新行，所以胜者手里的新令牌必须立刻再刷新也得到 401。这是合同行为，实现时不要放宽断言，也不要改成「胜者的新令牌仍然有效」。
+
 - [ ] **Step 2: 运行测试，确认新增用例失败**
 
 Run:
@@ -2837,7 +2906,7 @@ Expected: 退出码非 0。刷新用例的实际状态码是 404。
 import { loginUser, logoutSession, refreshSession, registerUser, type IdentityDeps } from "../../adapters/index.js";
 ```
 
-不要在刷新路由里读 `Authorization`。过期分支禁止调用 `revokeFamily`。这个分支已经在 `refreshSession` 里：`expired` 与 `missing` 直接返回，不写库。若测试失败，改适配层的判定顺序，不要放宽断言。
+不要在刷新路由里读 `Authorization`。过期分支禁止调用 `revokeFamily`。这个分支已经在 `refreshSession` 里：`expired` 与 `missing` 直接返回，不写库。并发连坐必须作废胜者的新 Refresh Token。若测试失败，改事务或判定顺序，不要放宽断言。
 
 - [ ] **Step 4: 运行测试，确认通过**
 
@@ -2848,7 +2917,7 @@ export DATABASE_URL='postgres://photo:CHANGE_ME_DB_PASSWORD@127.0.0.1:5432/photo
 npx tsx --test apps/api/test/identity-auth.test.ts
 ```
 
-Expected: 退出码 0。并发用例恰好一个 200 和一个 401，并且该 family 没有 `revoked_at is null` 的行。过期用例里呈现的那一行和兄弟行的 `revoked_at` 都仍是 null。
+Expected: 退出码 0。并发用例恰好一个 200 和一个 401；胜者新令牌再次刷新仍是 401；该 family 没有 `revoked_at is null` 的行。过期用例里呈现的那一行和兄弟行的 `revoked_at` 都仍是 null。
 
 - [ ] **Step 5: Commit**
 
@@ -2873,11 +2942,7 @@ git commit -m "feat: 实现 Refresh Token 轮换、登出与连坐测试"
 
 - [ ] **Step 1: 追加失败测试**
 
-先在 `identity-auth.test.ts` 现有的 import 区加入一行（不要写在文件末尾）：
-
-```typescript
-import { readFile } from "node:fs/promises";
-```
+`readFile` 已在 Task 7 的测试文件顶部引入。这里不要再写一次 import。
 
 然后在文件末尾追加：
 
@@ -3357,18 +3422,18 @@ git commit -m "docs: 将 Phase 1 状态标记为 done"
 |------|------|------|
 | §1 只交付 HTTP API 与测试，不改 `apps/web`，状态由实现提交更新 | Global Constraints；Task 12 | 已覆盖 |
 | §2.1 `credentialId` 必填 | Task 1 两处文档；`Principal`；Task 9 断言等于 refresh 行 id | 已覆盖 |
-| §2.2 HS256、claims、15m、5 秒偏差、不入库 | Task 2 默认值；Task 4 issuer；Task 9 时钟与篡改 | 已覆盖 |
+| §2.2 HS256、claims、15m、5 秒偏差、不入库 | Task 2 默认值；Task 4 issuer，并断言 `iss=openalbum`、`aud=openalbum-api` 以及错误 iss/aud 被拒绝；Task 9 时钟与篡改 | 已覆盖 |
 | §2.2 `cid` 保留但本阶段不查库 | issuer 与 `resolvePrincipal` 注释「预埋、本阶段禁止查库」；Task 9 源码断言与登出后 JWT 仍有效 | 已覆盖 |
 | §2.3 四态、轮换、登出不连坐 | `decideRefresh`；DAO `FOR UPDATE`；Task 8 | 已覆盖 |
-| 审查：并发双刷新连坐 | Task 8 `并发双刷新把整个 family 撤销` | 已覆盖 |
+| 审查：并发双刷新连坐 | Task 8：连坐作废胜者刚签发的新 Refresh Token，禁止放宽断言 | 已覆盖 |
 | 审查：过期 401 且不连坐 | Task 8 兄弟行 `revoked_at` 仍为 null | 已覆盖 |
 | §2.4 API Key 形态、一次性明文、软删除、`last_used_at` 失败仍放行 | Task 4 生成器；Task 6 单测；Task 10 HTTP | 已覆盖 |
 | §2.5 Bearer 顺序 | `resolvePrincipal`；Task 6 与 Task 9 | 已覆盖 |
 | §3 全部路由、固定文案、409 并发注册 | Task 7–10 | 已覆盖 |
 | §4 分层与端口 | 文件地图；`wire-identity.ts` 留在 `src/`；Task 6 与 Task 11 | 已覆盖 |
 | §5 `refresh_tokens` DDL | Task 2，SQL 与设计一致 | 已覆盖 |
-| §6 argon2id 参数、HMAC、哑哈希、日志不出现明文 | Task 4；Task 7 哨兵日志测试 | 已覆盖 |
-| 审查：鉴权路由不记录原始请求体 | `authLoggerOptions` 脱敏 `body`；Task 7 主动 `log.info({ body })` | 已覆盖 |
+| §6 argon2id 参数、HMAC、哑哈希、日志不出现明文 | Task 4；Task 7 默认日志路径与 redact 兜底 | 已覆盖 |
+| 审查：鉴权路由不记录原始请求体 | Task 7：默认日志不含哨兵；路由禁止 `request.log` 与 `request.body`；`auth-logger` 的 serializer 与 `REDACT` 被用例锁住 | 已覆盖 |
 | 审查：没有限流不要公开注册/登录 | Global Constraints；`deploy/README.md`；`deploy/nginx.example.conf` 只有注释 | 已覆盖 |
 | 审查：`API_KEY_PEPPER` 双重用途 | 保留变量名，`env.example` 与 `token-hasher.ts` 注释；不引入 `TOKEN_PEPPER` | 已覆盖 |
 | §7 第 1–16 条 | Task 7–11 的 `identity-auth.test.ts` 与边界脚本 | 已覆盖 |
