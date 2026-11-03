@@ -1,14 +1,21 @@
+# 本地开发用 PostgreSQL + pgvector。
+# 口令是占位符，与 deploy/env.example 一致；使用前请改成私有值。
 services:
   db:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_USER: openalbum
-      POSTGRES_PASSWORD: change-me
-      POSTGRES_DB: openalbum
+      POSTGRES_USER: photo
+      POSTGRES_PASSWORD: CHANGE_ME_DB_PASSWORD
+      POSTGRES_DB: photo_album
     ports:
       - "5432:5432"
     volumes:
-      - openalbum_pg:/var/lib/postgresql/data
+      - photo_album_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U photo -d photo_album"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 volumes:
-  openalbum_pg:
+  photo_album_pg:

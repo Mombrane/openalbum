@@ -1,2 +1,2 @@
-// 领域层占位：identity。禁止引入 HTTP、SQL、S3 或外部 SDK。
-export {};
+/** 身份上下文（Phase 1）：用户、会话、API Key。本阶段没有类型。 */
+export const IDENTITY_CONTEXT = "identity" as const;

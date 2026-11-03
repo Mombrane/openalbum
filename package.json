@@ -1,17 +1,20 @@
 {
   "name": "openalbum",
   "private": true,
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
-  "scripts": {
-    "dev:api": "npm run dev -w @openalbum/api",
-    "dev:web": "npm run dev -w @openalbum/web",
-    "build": "npm run build -w @openalbum/shared && npm run build -w @openalbum/api && npm run build -w @openalbum/web",
-    "test": "npm run test -w @openalbum/api"
-  },
+  "version": "0.0.0",
+  "description": "OpenAlbum — Phase 0 脚手架",
   "engines": {
     "node": ">=20"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "build": "npm run build -w apps/api && npm run build -w apps/web",
+    "typecheck": "npm run typecheck -w apps/api && npm run typecheck -w apps/web",
+    "check:layers": "node scripts/check-layer-boundaries.mjs",
+    "test": "node scripts/check-layer-boundaries.mjs && npm run test -w apps/api"
   }
 }

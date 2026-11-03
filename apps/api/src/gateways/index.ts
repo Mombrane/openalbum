@@ -1,2 +1,8 @@
-// 网关层占位。存储、视觉和嵌入客户端留到后续阶段。
-export {};
+/**
+ * 网关层入口。
+ *
+ * 实现领域或应用定义的出站端口。不做业务判断，也不被接口层直接调用。
+ */
+export { STORAGE_GATEWAY } from "./storage/index.js";
+export { VISION_GATEWAY } from "./vision/index.js";
+export { EMBED_GATEWAY } from "./embed/index.js";

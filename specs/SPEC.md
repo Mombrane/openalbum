@@ -1,53 +1,53 @@
-# OpenAlbum — Project Spec Entry
+# AI Native 共享相册 — 项目规格入口
 
-**Status:** active  
-**Product design:** [`docs/superpowers/specs/2026-11-03-ai-native-photo-album-design.md`](../docs/superpowers/specs/2026-11-03-ai-native-photo-album-design.md)  
-**Deploy:** [`deploy/README.md`](../deploy/README.md)  
-**Domain overview:** [`domain/overview.md`](domain/overview.md)
+**状态：** 生效中  
+**产品设计：** [`docs/superpowers/specs/2026-11-03-ai-native-photo-album-design.md`](../docs/superpowers/specs/2026-11-03-ai-native-photo-album-design.md)  
+**部署：** [`deploy/README.md`](../deploy/README.md)  
+**领域概览：** [`domain/overview.md`](domain/overview.md)
 
-This folder is the **authoritative source of truth** for implementation. Do not implement features that are not covered by a phase Spec marked `ready` or `in_progress`. The older monolithic plan under `docs/superpowers/plans/` is historical only.
+本目录是实现的**权威事实源**。阶段 Spec 未标记为 `ready` 或 `in_progress` 的能力，不得提前实现。`docs/superpowers/plans/` 里的早期英文单体计划只作历史说明，不指导实现。
 
-## How to work a phase
+## 如何推进一个阶段
 
-1. Read this index and the phase file under `phases/`.
-2. Confirm dependencies are `done`.
-3. Set the phase status to `in_progress` in the table below (same PR/commit as starting work is fine).
-4. Implement only **In scope**; refuse scope creep into later phases.
-5. Meet **Acceptance criteria**; update status to `done`.
-6. Keep `deploy/db/schema.sql` and env docs in sync when the phase changes persistence or ops.
+1. 先读本索引，再读 `phases/` 下对应阶段文件。
+2. 确认依赖阶段的状态已是 `done`。
+3. 把下表中该阶段状态改为 `in_progress`（可以和开工放在同一次提交）。
+4. 只实现该阶段的**范围内**内容，不把后续阶段的功能提前做进来。
+5. 满足**验收标准**后，把状态改为 `done`。
+6. 该阶段如果改了持久化或运维方式，同步更新 `deploy/db/schema.sql` 与环境变量文档。
 
-## Definition of done (any phase)
+## 任何阶段的完成定义
 
-- [ ] All acceptance criteria in the phase Spec are satisfied
-- [ ] Automated tests required by the phase pass (or documented manual checks for deploy-only items)
-- [ ] Layering respected: domain has no infra imports
-- [ ] This index table status updated to `done`
-- [ ] No secrets committed; only placeholders in `deploy/`
+- [ ] 该阶段 Spec 中的验收标准全部满足
+- [ ] 该阶段要求的自动化测试通过（纯部署项可以改为写明的手工检查）
+- [ ] 分层得到遵守：领域层不引用基础设施
+- [ ] 本索引表中该阶段状态已更新为 `done`
+- [ ] 没有提交密钥；`deploy/` 里只有占位符
 
-## Phase index
+## 阶段索引
 
-| Phase | Spec | Status | Summary |
+| 阶段 | 规格 | 状态 | 摘要 |
 |------:|------|--------|---------|
-| 0 | [phases/00-scaffold.md](phases/00-scaffold.md) | planned | Monorepo, DDD empty packages, compose, deploy stubs |
-| 1 | [phases/01-identity-auth.md](phases/01-identity-auth.md) | planned | Users, JWT session, API keys |
-| 2 | [phases/02-personal-library.md](phases/02-personal-library.md) | planned | Personal photo CRUD + object storage |
-| 3 | [phases/03-processing-pipeline.md](phases/03-processing-pipeline.md) | planned | EXIF, thumbs, vision, embed, jobs |
-| 4 | [phases/04-search.md](phases/04-search.md) | planned | Keyword + vector search |
-| 5 | [phases/05-shared-albums.md](phases/05-shared-albums.md) | planned | Shared albums, passphrase, roles |
-| 6 | [phases/06-web-ui.md](phases/06-web-ui.md) | planned | React UI polish & E2E happy paths |
+| 0 | [phases/00-scaffold.md](phases/00-scaffold.md) | done | 单仓、DDD 空包、Compose、部署占位 |
+| 1 | [phases/01-identity-auth.md](phases/01-identity-auth.md) | planned | 用户、JWT 会话、API Key |
+| 2 | [phases/02-personal-library.md](phases/02-personal-library.md) | planned | 个人照片增删改查与对象存储 |
+| 3 | [phases/03-processing-pipeline.md](phases/03-processing-pipeline.md) | planned | EXIF、缩略图、视觉描述、嵌入、任务 |
+| 4 | [phases/04-search.md](phases/04-search.md) | planned | 关键词与向量检索 |
+| 5 | [phases/05-shared-albums.md](phases/05-shared-albums.md) | planned | 共享册、口令、角色 |
+| 6 | [phases/06-web-ui.md](phases/06-web-ui.md) | planned | React 界面与端到端主路径 |
 
-## How to add a phase
+## 如何新增阶段
 
-1. Create `specs/phases/NN-short-name.md` using the same sections as existing phases (Goal, In/Out of scope, Domain touches, Acceptance, Depends on).
-2. Add a row to the table above with status `planned`.
-3. Link any new domain notes under `specs/domain/` if a new bounded context appears.
-4. Do not reorder completed phases; append or insert with a clear dependency note.
+1. 在 `specs/phases/` 新建 `NN-短名.md`，沿用现有阶段的章节：目标、范围内、范围外、领域触点、验收、依赖。
+2. 在上表增加一行，状态写 `planned`。
+3. 若出现新的限界上下文，在 `specs/domain/` 补说明并链过来。
+4. 不重排已完成阶段；新阶段追加，或插入时写清依赖。
 
-## Global constraints (all phases)
+## 全局约束（所有阶段）
 
-- Backend: Node + TypeScript; packages under `apps/api/src/{interfaces,adapters,domain,gateways,dao}`
-- Frontend: React (Vite) in `apps/web`
-- DB: PostgreSQL + pgvector on Singapore CVM (local compose for dev)
-- Object storage: S3-compatible; credentials via env placeholders only
-- Agents: `Authorization: Bearer <apiKey>`; keys stored hashed
-- No LLM inference on the CVM; external vision/embed HTTP APIs only
+- 后端：Node + TypeScript + Fastify；代码位于 `apps/api/src/{interfaces,adapters,domain,gateways,dao}`
+- 前端：React（Vite），位于 `apps/web`
+- 数据库：PostgreSQL + pgvector，部署在新加坡 CVM（本地用 Compose）
+- 对象存储：S3 兼容；凭证只通过环境变量占位符进入仓库
+- Agent：`Authorization: Bearer <apiKey>`；Key 只存哈希
+- 不在 CVM 上跑大模型推理；视觉与嵌入只调用外部 HTTP API

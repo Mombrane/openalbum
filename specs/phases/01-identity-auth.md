@@ -1,27 +1,42 @@
-# Phase 1 — 身份与 API Key
+# Phase 1 — 身份与鉴权
 
-**Status:** planned
+**状态：** planned  
+**依赖：** Phase 0
 
-## Goal
+## 目标
 
-用户、JWT 会话、API Key。
+人类可以用邮箱和密码注册、登录；登录后持有 JWT。用户可以创建、命名、吊销 API Key。Agent 使用 `Authorization: Bearer <apiKey>`，与该用户的网页会话落在同一主体上。
 
-## In scope
+## 范围内
 
-设计说明已经写明的部分：邮箱加密码登录；用户创建可命名、可吊销的 API Key；Key 只存哈希，可看末次使用时间；Agent 使用 `Authorization: Bearer <apiKey>`。
+- 用户注册与登录；密码只存哈希
+- JWT 签发与校验；有效期来自 `JWT_TTL`
+- API Key：创建时明文只返回一次；库内保存前缀与哈希；记录末次使用时间；支持吊销
+- 适配层把 JWT 或 API Key 解析为领域主体
+- 身份相关表与 `deploy/db/schema.sql` 对齐（`users`、`api_keys`）
+- 覆盖注册、登录、Key 创建、吊销后拒绝、错误口令的自动化测试
 
-## Out of scope
+## 范围外
 
-个人库、流水线、检索、共享册、完整网页。
+- 照片、对象存储、流水线、检索、共享册
+- 第三方登录、邮箱验证、找回密码
+- 角色系统之外的管理员后台（本阶段只有资源主人自己）
 
-## Domain touches
+## 领域触点
 
-`domain/identity`。规则留到本阶段实现，Phase 0 不写。
+`domain/identity`：用户、口令凭证、API Key 实体或值对象；校验与吊销规则；用户与 Key 的仓储端口。
 
-## Acceptance
+DAO 实现仓储。网关本阶段可以只有时钟与 ID。接口层提供鉴权所需的 HTTP 入口。口令与 API Key 的哈希由适配层通过端口完成；领域层只调用该端口，不 import Fastify、`pg` 或具体哈希库。
 
-以设计说明里的身份与 API Key 描述为准。原文阶段 Spec 未包含在可用产物中，这里不补写实现步骤。
+## 验收
 
-## Depends on
+- [ ] 新用户可注册并登录，获得 JWT
+- [ ] 错误密码与未知邮箱被拒绝，响应不区分到可枚举用户的程度之外的额外信息泄漏（至少不返回密码哈希）
+- [ ] 已登录用户可创建 Key，响应中的明文不能从后续列表接口再次取得
+- [ ] 数据库中不存在 Key 明文
+- [ ] 有效 Key 能解析为所属用户；已吊销 Key 被拒绝
+- [ ] 领域层边界检查仍然通过
 
-Phase 0。
+## 依赖
+
+Phase 0 为 `done`。

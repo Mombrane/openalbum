@@ -1,13 +1,17 @@
 {
-  "name": "@openalbum/api",
-  "version": "0.0.0",
+  "name": "@photo-album/api",
   "private": true,
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "test": "node --import tsx --test test/health.test.ts"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "fastify": "^5.6.1"
   },
   "devDependencies": {
     "@types/node": "^22.19.0",

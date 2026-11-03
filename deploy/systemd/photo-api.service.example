@@ -1,14 +1,19 @@
-# 占位单元。EnvironmentFile 指向机器上的私有 env，不要把密钥写进本文件。
-
 [Unit]
-Description=OpenAlbum API
-After=network.target
+Description=AI Native 共享相册 API
+After=network.target postgresql.service
+Wants=postgresql.service
 
 [Service]
-WorkingDirectory=/opt/openalbum
+Type=simple
+User=www-data
+WorkingDirectory=/opt/photo-album/apps/api
 EnvironmentFile=/etc/photo-album/api.env
-ExecStart=/usr/bin/node apps/api/dist/index.js
+ExecStart=/usr/bin/node dist/index.js
 Restart=on-failure
+RestartSec=5
+# 加固草图
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target

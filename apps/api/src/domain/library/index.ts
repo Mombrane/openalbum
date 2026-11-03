@@ -1,2 +1,2 @@
-// 领域层占位：library。禁止引入 HTTP、SQL、S3 或外部 SDK。
-export {};
+/** 照片库上下文（Phase 2–3）：个人照片、元数据、处理状态。本阶段没有类型。 */
+export const LIBRARY_CONTEXT = "library" as const;

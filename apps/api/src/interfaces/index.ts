@@ -1,1 +1,1 @@
-export { createHealthServer } from './http/server.js';
+export { registerHealthRoute } from "./http/register-health.js";

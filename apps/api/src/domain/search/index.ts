@@ -1,2 +1,2 @@
-// 领域层占位：search。禁止引入 HTTP、SQL、S3 或外部 SDK。
-export {};
+/** 检索上下文（Phase 4）：关键词与向量召回。本阶段没有类型。 */
+export const SEARCH_CONTEXT = "search" as const;

@@ -1,12 +1,13 @@
 {
-  "name": "@openalbum/web",
-  "version": "0.0.0",
+  "name": "@photo-album/web",
   "private": true,
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite --host 0.0.0.0 --port 43123",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "preview": "vite preview --host 0.0.0.0 --port 43123"
   },
   "dependencies": {
     "react": "^19.2.0",

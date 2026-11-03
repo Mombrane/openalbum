@@ -1,11 +1,9 @@
-# OpenAlbum — 设计说明
+# AI Native 共享相册 — 设计说明
 
 日期：2026-11-03  
 部署目标：新加坡腾讯云服务器  
 状态：已定稿（含 DDD 分层与分阶段 Spec 流程）  
 权威实现规格：仓库根目录 [`specs/SPEC.md`](../../../specs/SPEC.md)
-
-对外项目名称为 **OpenAlbum**（仓库 `openalbum`）。正文里的「AI Native」指产品形态，不是仓库名。
 
 ## 1. 目标
 
@@ -142,7 +140,7 @@ HTTP 请求
 **禁止**一次性实现整个代码库。需求拆成多个阶段 Spec，每个阶段走完整的「规格 → 实现 → 验收」循环。
 
 - **权威事实源**：仓库根目录 `specs/`。项目入口为 [`specs/SPEC.md`](../../../specs/SPEC.md)，索引全部阶段 Spec。
-- **历史计划**：`docs/superpowers/plans/2026-11-03-ai-native-photo-album.md` 保留作历史参考，**已被 `specs/` 分阶段流程取代**（见 `docs/superpowers/plans/README.md`）。
+- **历史计划**：早期英文单体实现计划只作历史说明，见 [`docs/superpowers/plans/`](../plans/README.md)。它已被 `specs/` 分阶段流程取代，不再指导实现。
 - **阶段完成定义**：该阶段 Spec 的验收标准全部满足；对应测试/手工检查通过；入口 `SPEC.md` 中该阶段状态更新为 `done`。
 - **加新阶段**：在 `specs/phases/` 新增文件，并在 `SPEC.md` 登记；不得跳过依赖阶段进入实现。
 

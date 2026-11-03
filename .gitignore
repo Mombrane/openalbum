@@ -1,5 +1,30 @@
+# 依赖
 node_modules/
+
+# 构建产物
 dist/
+*.tsbuildinfo
+.vite/
+
+# 环境与密钥（示例文件除外）
 .env
-*.local
+.env.*
+!.env.example
+*.pem
+*.key
+
+# 日志与覆盖率
+logs/
+*.log
+npm-debug.log*
+coverage/
+
+# 系统与编辑器
 .DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 本地数据与投放材料
+pgdata/
+/uploads/
