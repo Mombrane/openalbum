@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { loginUser, logoutSession, registerUser, type IdentityDeps } from "../../adapters/index.js";
+import { loginUser, logoutSession, refreshSession, registerUser, type IdentityDeps } from "../../adapters/index.js";
 import { parseCredentials } from "./validation.js";
 import { sendAuthError, sendInvalid } from "./send-auth-error.js";
 
@@ -33,6 +33,13 @@ export function registerAuthRoutes(app: FastifyInstance, deps: IdentityDeps): vo
     const parsed = parseCredentials(body);
     if ("message" in parsed) return sendInvalid(reply, parsed.message);
     const result = await loginUser(deps, parsed);
+    if (!result.ok) return sendAuthError(reply, result);
+    return reply.code(200).send(result.body);
+  });
+
+  app.post("/auth/refresh", { schema: { body: refreshBody } }, async (request, reply) => {
+    const body = request.body as { refreshToken: string };
+    const result = await refreshSession(deps, body.refreshToken);
     if (!result.ok) return sendAuthError(reply, result);
     return reply.code(200).send(result.body);
   });

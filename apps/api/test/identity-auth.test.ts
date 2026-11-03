@@ -196,3 +196,107 @@ serial("即使有人记录 body，redact 仍去掉明文", async () => {
   assert.equal(logs.includes("[Redacted]"), true);
   await local.close();
 });
+
+function refreshHttp(refreshToken: string) {
+  return app.inject({ method: "POST", url: "/auth/refresh", payload: { refreshToken } });
+}
+
+function logoutHttp(refreshToken: string) {
+  return app.inject({ method: "POST", url: "/auth/logout", payload: { refreshToken } });
+}
+
+serial("刷新轮换旧令牌，重放会清空该 family 的未撤销行", async () => {
+  await reset();
+  const registered = await registerUserHttp("refresh@example.com", "correct-horse");
+  const original = String(registered.json().refreshToken);
+  const familyId = await familyOf(original);
+  const refreshed = await refreshHttp(original);
+  assert.equal(refreshed.statusCode, 200);
+  assert.notEqual(refreshed.json().refreshToken, original);
+  assert.equal(await familyOf(String(refreshed.json().refreshToken)), familyId);
+  const replay = await refreshHttp(original);
+  assert.equal(replay.statusCode, 401);
+  assert.deepEqual(replay.json(), { error: { code: "unauthorized", message: "未授权" } });
+  const left = await pool.query(
+    "select count(*)::int as n from refresh_tokens where family_id = $1 and revoked_at is null",
+    [familyId],
+  );
+  assert.equal(left.rows[0].n, 0);
+});
+
+serial("登出只影响一个 family，未知令牌也是 204", async () => {
+  await reset();
+  await registerUserHttp("families@example.com", "correct-horse");
+  const first = await loginUserHttp("families@example.com", "correct-horse");
+  const second = await loginUserHttp("families@example.com", "correct-horse");
+  const logout = await logoutHttp(String(first.json().refreshToken));
+  assert.equal(logout.statusCode, 204);
+  assert.equal(logout.body, "");
+  assert.equal((await refreshHttp(String(first.json().refreshToken))).statusCode, 401);
+  assert.equal((await refreshHttp(String(second.json().refreshToken))).statusCode, 200);
+  const missing = await logoutHttp("oalr_missing");
+  assert.equal(missing.statusCode, 204);
+});
+
+serial("并发双刷新把整个 family 撤销", async () => {
+  await reset();
+  const registered = await registerUserHttp("race-refresh@example.com", "correct-horse");
+  const original = String(registered.json().refreshToken);
+  const familyId = await familyOf(original);
+  const [left, right] = await Promise.all([refreshHttp(original), refreshHttp(original)]);
+  assert.deepEqual([left.statusCode, right.statusCode].sort((a, b) => a - b), [200, 401]);
+  const failed = left.statusCode === 401 ? left : right;
+  assert.deepEqual(failed.json(), { error: { code: "unauthorized", message: "未授权" } });
+  const winner = left.statusCode === 200 ? left : right;
+  assert.equal((await refreshHttp(String(winner.json().refreshToken))).statusCode, 401);
+  const leftRows = await pool.query(
+    "select count(*)::int as n from refresh_tokens where family_id = $1 and revoked_at is null",
+    [familyId],
+  );
+  assert.equal(leftRows.rows[0].n, 0);
+});
+
+serial("过期刷新返回 401，且不连坐 family", async () => {
+  await reset();
+  const registered = await registerUserHttp("expired@example.com", "correct-horse");
+  const original = String(registered.json().refreshToken);
+  const current = await pool.query(
+    "select id, user_id, family_id from refresh_tokens where token_hash = $1",
+    [tokenHash(original)],
+  );
+  const row = current.rows[0];
+  const siblingId = "00000000-0000-4000-8000-00000000e001";
+  await pool.query(
+    `INSERT INTO refresh_tokens (id, user_id, token_hash, family_id, expires_at, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [siblingId, row.user_id, "ee".repeat(32), row.family_id, new Date("2099-01-01T00:00:00.000Z"), START],
+  );
+  clock.set(new Date(String(registered.json().refreshTokenExpiresAt)));
+  const expired = await refreshHttp(original);
+  assert.equal(expired.statusCode, 401);
+  assert.deepEqual(expired.json(), { error: { code: "unauthorized", message: "未授权" } });
+  const states = await pool.query(
+    "select id, revoked_at from refresh_tokens where family_id = $1 order by id",
+    [row.family_id],
+  );
+  for (const item of states.rows) {
+    assert.equal(item.revoked_at, null);
+  }
+});
+
+serial("找不到的 Refresh Token 返回 401 且不写库", async () => {
+  await reset();
+  const before = await pool.query("select count(*)::int as n from refresh_tokens");
+  const response = await refreshHttp("oalr_not-a-real-token");
+  assert.equal(response.statusCode, 401);
+  assert.deepEqual(response.json(), { error: { code: "unauthorized", message: "未授权" } });
+  const after = await pool.query("select count(*)::int as n from refresh_tokens");
+  assert.equal(after.rows[0].n, before.rows[0].n);
+});
+
+serial("空的 refreshToken 是请求不合法", async () => {
+  await reset();
+  const response = await app.inject({ method: "POST", url: "/auth/refresh", payload: { refreshToken: "" } });
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.json(), { error: { code: "validation_error", message: "请求不合法" } });
+});
