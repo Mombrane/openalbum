@@ -1,0 +1,14 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: openalbum
+      POSTGRES_PASSWORD: change-me
+      POSTGRES_DB: openalbum
+    ports:
+      - "5432:5432"
+    volumes:
+      - openalbum_pg:/var/lib/postgresql/data
+
+volumes:
+  openalbum_pg:

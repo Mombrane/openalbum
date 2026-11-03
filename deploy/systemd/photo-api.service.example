@@ -1,0 +1,14 @@
+# 占位单元。EnvironmentFile 指向机器上的私有 env，不要把密钥写进本文件。
+
+[Unit]
+Description=OpenAlbum API
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/openalbum
+EnvironmentFile=/etc/photo-album/api.env
+ExecStart=/usr/bin/node apps/api/dist/index.js
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

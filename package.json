@@ -1,0 +1,17 @@
+{
+  "name": "openalbum",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w @openalbum/api",
+    "dev:web": "npm run dev -w @openalbum/web",
+    "build": "npm run build -w @openalbum/shared && npm run build -w @openalbum/api && npm run build -w @openalbum/web",
+    "test": "npm run test -w @openalbum/api"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
