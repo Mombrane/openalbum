@@ -52,6 +52,12 @@ npm run build -w apps/web
 7. 把域名 A/AAAA 指到这台 CVM；用 certbot 签发证书；以 `nginx.example.conf` 为起点。
 8. 冒烟：`GET /health`。注册用户与上传照片要等 Phase 1、Phase 2 完成后再测。
 
+## 注册与登录不要裸露到公网
+
+`POST /auth/register` 与 `POST /auth/login` 在 Phase 1 没有限流。在反向代理或网关加上限流之前，不要把这两个路径公开到互联网。本仓库不实现限流器，也不规定阈值。口令长度上限 128 只是为了避免超长 argon2 输入，不是限流。
+
+Phase 1 的 `schema.sql` 在身份段增加 `refresh_tokens`。本地仍然用 `docker compose up -d` 后执行该文件。
+
 ## 密钥清单
 
 - [ ] 数据库口令
@@ -60,5 +66,6 @@ npm run build -w apps/web
 - [ ] 视觉 API Key
 - [ ] 嵌入 API Key
 - [ ] 共享册口令哈希的 pepper（若与 API Key pepper 分开）
+- [ ] `API_KEY_PEPPER`（API Key 与 Refresh Token 共用的 HMAC 键）
 
 禁止提交填好的值。一旦泄漏就轮换。

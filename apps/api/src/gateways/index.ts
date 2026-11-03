@@ -6,3 +6,5 @@
 export { STORAGE_GATEWAY } from "./storage/index.js";
 export { VISION_GATEWAY } from "./vision/index.js";
 export { EMBED_GATEWAY } from "./embed/index.js";
+export { loadAuthConfig, parseDurationSeconds } from "./auth/config.js";
+export type { AuthConfig } from "./auth/config.js";
