@@ -222,6 +222,8 @@ Bearer：Access JWT 或 API Key。
 
 实体与值对象：`User`、`ApiKey`、`RefreshToken`、`Principal`、`CredentialKind`。
 
+`Principal.credentialId` 在本阶段必填，与 §2.1 一致，不是可选字段。密码会话时它是签发该 Access JWT 的 Refresh Token 行 id；API Key 时它是 `api_keys.id`。两种成功凭证都必须带上它。
+
 端口（只有类型与调用约定，没有基础设施实现）：
 
 - `UserRepository`、`ApiKeyRepository`、`RefreshTokenRepository`

@@ -44,6 +44,8 @@ const domainPackages = new Set([
   "http",
   "https",
   "net",
+  "argon2",
+  "jose",
 ]);
 
 const domainPrefixes = ["@fastify/", "@aws-sdk/", "@aws/", "node:http", "node:https", "node:net"];

@@ -6,3 +6,11 @@
 export { STORAGE_GATEWAY } from "./storage/index.js";
 export { VISION_GATEWAY } from "./vision/index.js";
 export { EMBED_GATEWAY } from "./embed/index.js";
+export { loadAuthConfig, parseDurationSeconds } from "./auth/config.js";
+export type { AuthConfig } from "./auth/config.js";
+export { createAccessTokenIssuer } from "./auth/access-token-issuer.js";
+export { createIdGenerator } from "./auth/id-generator.js";
+export { createPasswordHasher } from "./auth/password-hasher.js";
+export { createSecretGenerator } from "./auth/secret-generator.js";
+export { SystemClock } from "./auth/system-clock.js";
+export { createTokenHasher } from "./auth/token-hasher.js";
