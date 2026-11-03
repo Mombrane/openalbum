@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import pg from "pg";
-import { registerAuthRoutes, registerErrorHandler, registerHealthRoute, registerMeRoute } from "./interfaces/index.js";
+import { registerApiKeyRoutes, registerAuthRoutes, registerErrorHandler, registerHealthRoute, registerMeRoute } from "./interfaces/index.js";
 import type { Clock } from "./domain/identity/ports.js";
 import { loadAuthConfig, type AuthConfig } from "./gateways/auth/config.js";
 import { SystemClock } from "./gateways/auth/system-clock.js";
@@ -33,6 +33,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   registerHealthRoute(app);
   registerAuthRoutes(app, deps);
   registerMeRoute(app, deps);
+  registerApiKeyRoutes(app, deps);
   app.addHook("onClose", async () => {
     if (ownsPool) await pool.end();
   });

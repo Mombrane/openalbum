@@ -380,3 +380,94 @@ serial("校验 Access JWT 的源码不查询刷新令牌表", async () => {
   assert.equal(issuer.includes("预埋、本阶段禁止查库"), true);
   assert.equal(resolver.includes("预埋、本阶段禁止查库"), true);
 });
+
+function authJson(token: string, method: "POST" | "GET" | "DELETE", url: string, payload?: unknown) {
+  return app.inject({
+    method,
+    url,
+    headers: bearer(token),
+    ...(payload === undefined ? {} : { payload }),
+  });
+}
+
+serial("密码会话可以创建 Key，列表不再返回明文，库内只有 HMAC", async () => {
+  await reset();
+  const registered = await registerUserHttp("keys@example.com", "correct-horse");
+  const accessToken = String(registered.json().accessToken);
+  const created = await authJson(accessToken, "POST", "/api-keys", { name: "  我的 Agent  " });
+  assert.equal(created.statusCode, 201);
+  const secret = String(created.json().secret);
+  const apiKey = created.json().apiKey;
+  assert.match(secret, /^oalb_[A-Za-z0-9]{8}_[A-Za-z0-9_-]+$/);
+  assert.equal(secret.startsWith(`${apiKey.keyPrefix}_`), true);
+  assert.equal(apiKey.name, "我的 Agent");
+  assert.equal(apiKey.lastUsedAt, null);
+  assert.equal(apiKey.revokedAt, null);
+
+  clock.advance(1000);
+  const second = await authJson(accessToken, "POST", "/api-keys", { name: "second" });
+  assert.equal(second.statusCode, 201);
+  const listed = await authJson(accessToken, "GET", "/api-keys");
+  assert.equal(listed.statusCode, 200);
+  const bodyText = JSON.stringify(listed.json());
+  assert.equal(bodyText.includes(secret), false);
+  assert.equal(bodyText.includes("key_hash"), false);
+  assert.deepEqual(
+    listed.json().apiKeys.map((item: { name: string }) => item.name),
+    ["我的 Agent", "second"],
+  );
+
+  const stored = await pool.query("select key_prefix, key_hash from api_keys where id = $1", [apiKey.id]);
+  assert.equal(stored.rows[0].key_prefix, apiKey.keyPrefix);
+  assert.equal(stored.rows[0].key_hash, tokenHash(secret));
+  assert.equal(JSON.stringify(stored.rows[0]).includes(secret), false);
+
+  const asKey = await app.inject({ method: "GET", url: "/me", headers: bearer(secret) });
+  assert.equal(asKey.statusCode, 200);
+  assert.equal(asKey.json().principal.userId, registered.json().user.id);
+  assert.equal(asKey.json().principal.credentialKind, "api_key");
+  assert.equal(asKey.json().principal.credentialId, apiKey.id);
+  const used = await pool.query("select last_used_at from api_keys where id = $1", [apiKey.id]);
+  assert.notEqual(used.rows[0].last_used_at, null);
+});
+
+serial("吊销后 Key 不能再访问，重复删除仍是 204，管理接口拒绝 API Key", async () => {
+  await reset();
+  const registered = await registerUserHttp("revoke@example.com", "correct-horse");
+  const accessToken = String(registered.json().accessToken);
+  const created = await authJson(accessToken, "POST", "/api-keys", { name: "agent" });
+  const secret = String(created.json().secret);
+  const id = String(created.json().apiKey.id);
+
+  for (const [method, url] of [
+    ["POST", "/api-keys"],
+    ["GET", "/api-keys"],
+    ["DELETE", `/api-keys/${id}`],
+  ] as const) {
+    const rejected = await authJson(secret, method, url, method === "POST" ? { name: "nope" } : undefined);
+    assert.equal(rejected.statusCode, 403);
+    assert.deepEqual(rejected.json(), { error: { code: "forbidden", message: "当前凭证不能执行该操作" } });
+  }
+
+  const removed = await authJson(accessToken, "DELETE", `/api-keys/${id}`);
+  assert.equal(removed.statusCode, 204);
+  assert.equal(removed.body, "");
+  assert.equal((await app.inject({ method: "GET", url: "/me", headers: bearer(secret) })).statusCode, 401);
+  assert.equal((await authJson(accessToken, "DELETE", `/api-keys/${id}`)).statusCode, 204);
+  const listed = await authJson(accessToken, "GET", "/api-keys");
+  assert.equal(listed.json().apiKeys[0].revokedAt === null, false);
+  assert.equal(JSON.stringify(listed.json()).includes(secret), false);
+
+  const badId = await authJson(accessToken, "DELETE", "/api-keys/not-a-uuid");
+  assert.deepEqual(badId.json(), { error: { code: "validation_error", message: "标识不合法" } });
+  const missing = await authJson(accessToken, "DELETE", "/api-keys/00000000-0000-4000-8000-000000000099");
+  assert.deepEqual(missing.json(), { error: { code: "not_found", message: "未找到" } });
+});
+
+serial("空名称返回名称不合法", async () => {
+  await reset();
+  const registered = await registerUserHttp("name@example.com", "correct-horse");
+  const response = await authJson(String(registered.json().accessToken), "POST", "/api-keys", { name: "   " });
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.json(), { error: { code: "validation_error", message: "名称不合法" } });
+});
