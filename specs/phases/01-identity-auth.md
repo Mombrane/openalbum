@@ -1,6 +1,6 @@
 # Phase 1 — 身份与鉴权
 
-**状态：** planned  
+**状态：** done  
 **依赖：** Phase 0  
 **设计：** [`docs/superpowers/specs/2026-11-03-openalbum-phase1-identity-auth-design.md`](../../docs/superpowers/specs/2026-11-03-openalbum-phase1-identity-auth-design.md)
 
@@ -37,13 +37,13 @@ DAO 实现仓储。网关提供时钟、ID、Access JWT 与哈希。接口层提
 
 ## 验收
 
-- [ ] 新用户可注册并登录，获得 Access JWT 与 Refresh Token
-- [ ] 重复邮箱注册返回 409；错误密码与未知邮箱的登录失败均为 401，且响应不区分二者，也不返回密码哈希
-- [ ] Refresh Token 可换发新的 Access JWT 与新 Refresh Token；被轮换或登出的旧 Refresh Token 再使用会被拒绝
-- [ ] 已登录用户可创建 Key，响应中的明文不能从后续列表接口再次取得
-- [ ] 数据库中不存在 Key 明文或 Refresh Token 明文
-- [ ] 有效 Key 能解析为所属用户；已吊销 Key 被拒绝
-- [ ] 领域层边界检查仍然通过
+- [x] 新用户可注册并登录，获得 Access JWT 与 Refresh Token
+- [x] 重复邮箱注册返回 409；错误密码与未知邮箱的登录失败均为 401，且响应不区分二者，也不返回密码哈希
+- [x] Refresh Token 可换发新的 Access JWT 与新 Refresh Token；被轮换或登出的旧 Refresh Token 再使用会被拒绝
+- [x] 已登录用户可创建 Key，响应中的明文不能从后续列表接口再次取得
+- [x] 数据库中不存在 Key 明文或 Refresh Token 明文
+- [x] 有效 Key 能解析为所属用户；已吊销 Key 被拒绝
+- [x] 领域层边界检查仍然通过
 
 ## 依赖
 
