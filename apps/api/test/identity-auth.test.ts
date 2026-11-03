@@ -300,3 +300,83 @@ serial("空的 refreshToken 是请求不合法", async () => {
   assert.equal(response.statusCode, 400);
   assert.deepEqual(response.json(), { error: { code: "validation_error", message: "请求不合法" } });
 });
+
+function bearer(token: string) {
+  return { authorization: `Bearer ${token}` };
+}
+
+serial("GET /me 返回必填 credentialId，登出后 Access JWT 仍然有效", async () => {
+  await reset();
+  const registered = await registerUserHttp("me@example.com", "correct-horse");
+  const accessToken = String(registered.json().accessToken);
+  const refreshToken = String(registered.json().refreshToken);
+  const refreshRow = await pool.query("select id from refresh_tokens where token_hash = $1", [tokenHash(refreshToken)]);
+  const me = await app.inject({ method: "GET", url: "/me", headers: bearer(accessToken) });
+  assert.equal(me.statusCode, 200);
+  assert.equal(me.json().principal.credentialKind, "password_session");
+  assert.equal(me.json().principal.userId, me.json().user.id);
+  assert.equal(me.json().principal.credentialId, refreshRow.rows[0].id);
+
+  assert.equal((await logoutHttp(refreshToken)).statusCode, 204);
+  const still = await app.inject({ method: "GET", url: "/me", headers: bearer(accessToken) });
+  assert.equal(still.statusCode, 200);
+  assert.equal(still.json().principal.credentialId, refreshRow.rows[0].id);
+});
+
+serial("时钟超过 JWT_TTL 加 5 秒，或签名被篡改，都是同一个 401", async () => {
+  await reset();
+  const registered = await registerUserHttp("ttl@example.com", "correct-horse");
+  const accessToken = String(registered.json().accessToken);
+  clock.advance(124_000);
+  const insideSkew = await app.inject({ method: "GET", url: "/me", headers: bearer(accessToken) });
+  assert.equal(insideSkew.statusCode, 200);
+  clock.advance(1_000);
+  const expired = await app.inject({ method: "GET", url: "/me", headers: bearer(accessToken) });
+  assert.equal(expired.statusCode, 401);
+  assert.deepEqual(expired.json(), { error: { code: "unauthorized", message: "未授权" } });
+
+  clock.set(START);
+  const tampered = `${accessToken.slice(0, -1)}${accessToken.endsWith("a") ? "b" : "a"}`;
+  const broken = await app.inject({ method: "GET", url: "/me", headers: bearer(tampered) });
+  assert.deepEqual(broken.json(), expired.json());
+});
+
+serial("缺少 Bearer、方案错误、空值和 Refresh Token 访问 /me 都是 401", async () => {
+  await reset();
+  const registered = await registerUserHttp("bearer@example.com", "correct-horse");
+  const refreshToken = String(registered.json().refreshToken);
+  const cases = [
+    {},
+    { authorization: "Basic abc" },
+    { authorization: "Bearer" },
+    { authorization: "Bearer    " },
+    { authorization: `Bearer ${refreshToken}` },
+  ];
+  for (const headers of cases) {
+    const response = await app.inject({ method: "GET", url: "/me", headers });
+    assert.equal(response.statusCode, 401);
+    assert.deepEqual(response.json(), { error: { code: "unauthorized", message: "未授权" } });
+  }
+});
+
+serial("用户已被删除时，未过期 Access JWT 返回 401", async () => {
+  await reset();
+  const registered = await registerUserHttp("gone@example.com", "correct-horse");
+  await pool.query("delete from users where email = $1", ["gone@example.com"]);
+  const response = await app.inject({
+    method: "GET",
+    url: "/me",
+    headers: bearer(String(registered.json().accessToken)),
+  });
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.json().error.code, "unauthorized");
+});
+
+serial("校验 Access JWT 的源码不查询刷新令牌表", async () => {
+  const issuer = await readFile(new URL("../src/gateways/auth/access-token-issuer.ts", import.meta.url), "utf8");
+  const resolver = await readFile(new URL("../src/adapters/identity/resolve-principal.ts", import.meta.url), "utf8");
+  assert.equal(issuer.includes("refresh_tokens"), false);
+  assert.equal(resolver.includes("refresh_tokens"), false);
+  assert.equal(issuer.includes("预埋、本阶段禁止查库"), true);
+  assert.equal(resolver.includes("预埋、本阶段禁止查库"), true);
+});
