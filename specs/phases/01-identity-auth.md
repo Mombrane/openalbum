@@ -31,7 +31,7 @@
 
 ## 领域触点
 
-`domain/identity`：用户、口令凭证、Refresh Token、API Key 实体或值对象；校验、轮换与吊销规则；用户、Refresh Token 与 Key 的仓储端口。主体是 `userId` + `credentialKind`（`password_session` | `api_key`）+ 可选 `credentialId`，不含相册权限。
+`domain/identity`：用户、口令凭证、Refresh Token、API Key 实体或值对象；校验、轮换与吊销规则；用户、Refresh Token 与 Key 的仓储端口。主体是 `userId` + `credentialKind`（`password_session` | `api_key`）+ 必填 `credentialId`（密码会话为签发该 Access JWT 的 Refresh Token 行 id，API Key 为 `api_keys.id`；两种成功凭证都必须带上它），不含相册权限。
 
 DAO 实现仓储。网关提供时钟、ID、Access JWT 与哈希。接口层提供鉴权所需的 HTTP 入口。口令、Refresh Token 与 API Key 的哈希由适配层通过端口完成；领域层只调用该端口，不 import Fastify、`pg` 或具体哈希库。端口实现放在网关，由组合根注入。适配层不直接引用 DAO 与网关包。
 
