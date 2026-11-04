@@ -1,6 +1,6 @@
 # Phase 2 — 个人照片库
 
-**状态：** planned  
+**状态：** in_progress  
 **依赖：** Phase 1  
 **设计：** [`docs/superpowers/specs/2026-11-04-openalbum-phase2-personal-library-design.md`](../../docs/superpowers/specs/2026-11-04-openalbum-phase2-personal-library-design.md)
 

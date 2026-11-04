@@ -66,6 +66,39 @@ CREATE TABLE IF NOT EXISTS photos (
 CREATE INDEX IF NOT EXISTS idx_photos_owner_created ON photos(owner_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_photos_status ON photos(status);
 
+-- 进行中的原图上传。对象存储完成之后才插入 photos。
+-- status: open | completing | completed | aborted
+CREATE TABLE IF NOT EXISTS upload_sessions (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  photo_id             UUID NOT NULL UNIQUE,
+  object_key           TEXT NOT NULL,
+  content_type         TEXT NOT NULL,
+  byte_size            BIGINT NOT NULL,
+  s3_upload_id         TEXT NOT NULL,
+  status               TEXT NOT NULL DEFAULT 'open',
+  object_completed_at  TIMESTAMPTZ,
+  expires_at           TIMESTAMPTZ NOT NULL,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT upload_sessions_status CHECK (status IN ('open', 'completing', 'completed', 'aborted')),
+  CONSTRAINT upload_sessions_byte_size CHECK (byte_size >= 1 AND byte_size <= 33554432)
+);
+
+CREATE TABLE IF NOT EXISTS upload_parts (
+  upload_session_id UUID NOT NULL REFERENCES upload_sessions(id) ON DELETE CASCADE,
+  part_number       INT NOT NULL,
+  etag              TEXT NOT NULL,
+  byte_size         BIGINT NOT NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (upload_session_id, part_number),
+  CONSTRAINT upload_parts_part_number CHECK (part_number >= 1 AND part_number <= 10000),
+  CONSTRAINT upload_parts_byte_size CHECK (byte_size >= 1 AND byte_size <= 33554432)
+);
+
+CREATE INDEX IF NOT EXISTS idx_upload_sessions_owner_status
+  ON upload_sessions(owner_id, status, expires_at);
+
 -- 嵌入（维度必须与 EMBED_DIMENSIONS 一致；换模型时一起改）
 CREATE TABLE IF NOT EXISTS photo_embeddings (
   photo_id    UUID PRIMARY KEY REFERENCES photos(id) ON DELETE CASCADE,
