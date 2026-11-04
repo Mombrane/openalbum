@@ -26,7 +26,7 @@ npm run build -w apps/api
 
 | SHA | 说明 |
 |-----|------|
-| （push 后填写） | docs: 将 Phase 2 状态标记为 done |
+| `9e016c4` | docs: 将 Phase 2 状态标记为 done |
 
 ## 关注点
 
