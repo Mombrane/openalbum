@@ -38,6 +38,7 @@ export type FakeObjectStorage = ObjectStorage & {
   failDelete: boolean;
   failComplete: boolean;
   failAbort: boolean;
+  createCalls: number;
   blockComplete(gate: StorageGate | null): void;
   completedBytes(key: string): Buffer | null;
 };
@@ -55,6 +56,7 @@ export function createFakeObjectStorage(): FakeObjectStorage {
     failDelete: false,
     failComplete: false,
     failAbort: false,
+    createCalls: 0,
 
     blockComplete(gate: StorageGate | null) {
       completeGate = gate;
@@ -65,6 +67,7 @@ export function createFakeObjectStorage(): FakeObjectStorage {
     },
 
     async createMultipartUpload(input) {
+      storage.createCalls += 1;
       nextUploadId += 1;
       const uploadId = createHash("sha256").update(`${input.key}:${nextUploadId}`).digest("hex").slice(0, 32);
       uploads.set(uploadId, { key: input.key, contentType: input.contentType, parts: new Map() });
