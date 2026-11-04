@@ -48,7 +48,7 @@
 
 | SHA | 说明 |
 |-----|------|
-| （push 后填写） | test: 覆盖个人库上传、越权与 completing 栅栏 |
+| `382c6de` | test: 覆盖个人库上传、越权与 completing 栅栏 |
 
 ## 后续
 
