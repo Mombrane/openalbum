@@ -27,12 +27,12 @@ Phase 1 已经回答「请求是谁」。Phase 2 在这个主体上交付个人�
 |------|------|
 | 上传路径 | 服务端中转。不提供预签名客户端直传 |
 | 续传 | S3 Multipart Upload，全程经 API：创建会话 → 上传分片 → 完成。客户端可以中止 |
-| 会话方案 | 方案 A：进行中只写 `upload_sessions`（及分片行）。Complete 成功之后才 `INSERT photos` |
+| 会话方案 | 方案 A：进行中只写 `upload_sessions`（及分片行）。呼叫 `completeMultipartUpload` 之前先把会话标为 `completing`。存储成功之后才 `INSERT photos` |
 | 对象键 | 创建会话时预生成 photo UUID。键为 `owners/{userId}/photos/{photoId}/original`。完成时 `photos.id` 用同一个 UUID |
 | 单文件上限 | 32 MiB（33554432 字节） |
 | 类型 | 白名单固定，见第 6 节。本阶段不按魔数嗅探，也不把名单做成环境变量 |
 | 读原图 | 列表和详情返回签名 GET URL。TTL 来自 `S3_SIGNED_URL_TTL`，默认 `15m` |
-| 删除 | 先删 `photos` 行。对象尽力删。对象删除失败只记日志，HTTP 仍成功 |
+| 删除 | 先删 `photos` 行。原图尽力删；`thumb_key` 非空时缩略图也尽力删。对象删除失败只记日志，HTTP 仍成功 |
 | PATCH | 只能改 `description`、`tags`、`taken_at`、`location_text`、`latitude`、`longitude`。不能改 `content_type`、`object_key`、`status` |
 | 他人资源 | 已认证但不是主人：统一 404，文案「未找到」。不使用 403，避免把「没有」和「不是你的」分开 |
 | 分层 | 领域层定义端口，不 import S3 SDK。假存储只放在 `gateways/storage` |
@@ -130,6 +130,7 @@ Phase 1 已经回答「请求是谁」。Phase 2 在这个主体上交付个人�
 | 401 | `unauthorized` | 未授权 | 没有可用的 Bearer |
 | 404 | `not_found` | 未找到 | 照片或会话不存在，或不属于当前用户 |
 | 409 | `upload_closed` | 上传已结束 | 会话已中止，或已过期并被中止 |
+| 409 | `upload_completing` | 上传正在完成 | 会话处于 `completing` 时再传分片或中止。另一完成请求正握着该会话的存储互斥时，本次完成也返回这一结果 |
 | 409 | `upload_completed` | 上传已完成 | 对已完成的会话再传分片或再中止 |
 | 413 | `payload_too_large` | 文件超过 32 MiB | 分片路由的请求体超过 32 MiB |
 | 500 | `storage_error` | 对象存储不可用 | 对象存储操作失败，且本文没有把这次失败定义成成功 |
@@ -191,7 +192,7 @@ Bearer：Access JWT 或 API Key。
 
 创建顺序：
 
-1. 清扫当前用户已过期且仍为 `open` 的会话（第 5.4 节）。清扫失败不阻止本次创建。
+1. 清扫当前用户已过期且仍为 `open` 的会话（第 5.4 节）。不处理 `completing`。清扫失败不阻止本次创建。
 2. 生成会话 id 与 photo id，算出对象键，调用 `createMultipartUpload`。
 3. 存储成功后再插入 `upload_sessions`。插入失败时尽力 `abortMultipartUpload`，记日志，返回 500 `storage_error`。
 4. 存储创建失败则不插行，返回 500 `storage_error`。
@@ -214,21 +215,23 @@ Bearer。`:partNumber` 必须匹配 `^[1-9][0-9]{0,4}$` 且数值在 1 到 10000
 
 `etag` 原样保存网关返回的字符串，完成时原样交回。客户端在完成请求里不必、也不能提交 ETag。
 
-会话不属于当前用户，或 id 不存在：404。已中止或此次发现过期：按第 5.4 节中止后返回 409 `upload_closed`。已完成：409 `upload_completed`，不修改对象。
+会话不属于当前用户，或 id 不存在：404。状态为 `completing`：409 `upload_completing`，文案「上传正在完成」。不调用对象存储，不写分片行。已中止，或仍为 `open` 但此次发现过期：按第 5.4 节中止后返回 409 `upload_closed`。已完成：409 `upload_completed`，不修改对象。
 
-处理分片时先锁会话行，再上传，再写入分片行，避免与完成交错。对象存储拒绝该片时返回 500 `storage_error`，不写分片行。
+只有 `open` 且未过期才收下分片。处理时先锁会话行。锁内若不是这个状态，按上一段的状态码返回，不发起 `uploadPart`。确认是 `open` 之后，可以在持锁期间调用 `uploadPart`，再写分片行。对象存储拒绝该片时返回 500 `storage_error`，不写分片行。
 
 ### 4.4 `POST /photos/uploads/:id/complete`
 
 Bearer。正文省略，或是 `{}`。出现其他字段：400「请求不合法」。
 
-分片集合不满足第 5.3 节：400「分片不合法」，不调用完成，不插入 `photos`。
+分片集合不满足第 5.3 节：400「分片不合法」，不调用完成，不插入 `photos`，状态保持 `open`。
 
-对象存储的完成调用成功之后，才插入 `photos`。插入的列见第 6.3 节。首次成功 **201**，正文是第 4.7 节的 `{ "photo": ... }`。
+持锁校验通过后，先把会话写成 `completing` 并提交，然后才呼叫 `completeMultipartUpload`。`completing` 期间分片与中止得到 409，分片行不再变化。另一完成请求正握着该会话的存储互斥时，本次完成也返回 409 `upload_completing`，不发起第二次存储调用。互斥已经释放（上次请求结束或进程已退出）且 `object_completed_at` 仍为空时，再次完成沿用冻结的分片行继续呼叫存储，见第 5.2 节。
+
+对象存储的完成调用成功之后，才写 `object_completed_at` 并插入 `photos`。插入的列见第 6.3 节。首次成功 **201**，正文是第 4.7 节的 `{ "photo": ... }`。
 
 已经完成且照片还在：再次完成返回 **200** 和同一张照片，不第二次创建对象。已经完成但照片已被删除：404，不把照片插回去。
 
-对象存储完成失败，且第 5.2 节的补救也不成立：500 `storage_error`，会话保持 `open`，`photos` 中没有这张图。客户端可以修好分片后重试完成。
+对象存储完成失败，且第 5.2 节的补救也不成立：500 `storage_error`，把 `completing` 改回 `open`，`photos` 中没有这张图。客户端可以改分片或中止后再试。改回 `open` 若失败，会话留在 `completing`；再次完成仍可重试对象存储，此期间仍然拒绝分片与中止。
 
 对象已经完成，但数据库没能写下照片行：500 `internal_error`。会话仍可重试；重试不得再创建一遍对象。
 
@@ -238,7 +241,7 @@ Bearer。正文省略，或是 `{}`。出现其他字段：400「请求不合法
 
 会话属于当前用户且为 `open`：调用 `abortMultipartUpload`，把状态改为 `aborted`，**204** 空正文。存储返回「upload 不存在」时同样 204。其他存储失败：500 `storage_error`，状态保持 `open`，客户端可以重试中止。
 
-已经是 `aborted`：204。已经 `completed`：409 `upload_completed`，不删除照片，也不删除对象。不存在或不属于当前用户：404。过期的 `open` 会话走第 5.4 节，成功后 204。
+状态为 `completing`：409 `upload_completing`，文案「上传正在完成」。不调用 `abortMultipartUpload`。已经是 `aborted`：204。已经 `completed`：409 `upload_completed`，不删除照片，也不删除对象。不存在或不属于当前用户：404。过期的 `open` 会话走第 5.4 节，成功后 204。`completing` 即使已经过了 `expires_at`，中止仍然是 409，不改走过期中止。
 
 ### 4.6 `GET /photos`
 
@@ -331,6 +334,8 @@ Bearer。照片属于当前用户：在一个事务里删除 `photos` 行并提�
 
 对象删除失败，或对象本来就不存在：仍然 204。失败时按第 9 节记日志。不回插已删除的行。
 
+若 `thumb_key` 非空，对这个键同样尽力删除。失败只记日志，响应仍是 204。本阶段新插入的行该列为空。Phase 3 写下缩略图之后，删除仍同时清掉缩略图对象。
+
 再次删除同一 id：404。不存在或不属于当前用户：404，且不调用对象删除。删除照片不中止、不删除 `upload_sessions` 行；完成之后的会话如果还在，再次完成按第 4.4 节返回 404。
 
 ## 5. 上传会话、对象键与 multipart
@@ -341,7 +346,7 @@ Bearer。照片属于当前用户：在一个事务里删除 `photos` 行并提�
 
 ```sql
 -- 进行中的原图上传。对象存储完成之后才插入 photos。
--- status: open | completed | aborted
+-- status: open | completing | completed | aborted
 CREATE TABLE IF NOT EXISTS upload_sessions (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -355,7 +360,7 @@ CREATE TABLE IF NOT EXISTS upload_sessions (
   expires_at           TIMESTAMPTZ NOT NULL,
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT upload_sessions_status CHECK (status IN ('open', 'completed', 'aborted')),
+  CONSTRAINT upload_sessions_status CHECK (status IN ('open', 'completing', 'completed', 'aborted')),
   CONSTRAINT upload_sessions_byte_size CHECK (byte_size >= 1 AND byte_size <= 33554432)
 );
 
@@ -390,13 +395,15 @@ owners/{userId}/photos/{photoId}/original
 
 完成时的顺序：
 
-1. 事务里 `SELECT … FOR UPDATE` 会话行。不是主人或不存在则 404。`aborted` 则 409 `upload_closed`。`completed` 则按第 4.4 节返回照片或 404。`expires_at <= now` 且 `object_completed_at` 为空则进入过期中止。校验分片，不合法则 400，不改状态。
-2. `object_completed_at` 已有值：跳过对象存储，进入第 4 步。
-3. 调用 `completeMultipartUpload`。成功后立刻用单独的短事务写下 `object_completed_at = now`，状态仍为 `open`，然后提交。若存储返回 upload 已不存在，则 `headObject`：字节数等于 `byte_size` 时同样写下 `object_completed_at`；否则 500 `storage_error`，不插照片。
-4. 再开事务插入 `photos`，把会话改为 `completed`。主键冲突说明并发的另一次完成已经插入：读出该照片，返回 200。
-5. 第 3 步已经成功但第 4 步失败：返回 500 `internal_error`。再次 `complete` 看到 `object_completed_at` 后只做第 4 步。
+1. 事务里 `SELECT … FOR UPDATE` 会话行。不是主人或不存在则 404。`aborted` 则 409 `upload_closed`。`completed` 则按第 4.4 节返回照片或 404。状态为 `open` 且 `expires_at <= now` 且 `object_completed_at` 为空：进入过期中止，不写成 `completing`。
+2. `object_completed_at` 已有值：跳过对象存储，进入第 6 步。
+3. 仅当状态仍为 `open` 时校验分片。不满足第 5.3 节：400「分片不合法」，状态保持 `open`，不调用对象存储。进入 `completing` 之前做完这次校验。
+4. 校验通过后，仍在同一事务里把状态写成 `completing` 并提交，然后释放行锁。同一会话同时只允许一个完成请求呼叫对象存储。互斥使用会随数据库连接断开而释放的锁（PostgreSQL advisory lock 即可）。行锁释放后，分片请求能读到 `completing` 并返回 409，而不是堵在行锁上。拿不到互斥的完成请求返回 409 `upload_completing`，不呼叫存储。已经是 `completing`、互斥又已空闲的重试不再改分片集合，直接使用锁内读到的分片行。
+5. 持有互斥时，在行锁之外调用 `completeMultipartUpload`，使用第 4 步提交前读到的 ETag。成功后用单独的短事务写下 `object_completed_at = now`，状态保持 `completing`。若存储返回 upload 已不存在，则 `headObject`：字节数等于 `byte_size` 时同样写下 `object_completed_at`。其他失败：仅当 `object_completed_at` 仍为空时把状态从 `completing` 改回 `open`，返回 500 `storage_error`，不插照片。条件不成立时改为进入第 6 步，不得把已完成对象的会话退回 `open`。
+6. 再开事务插入 `photos`，把会话改为 `completed`。主键冲突说明并发的另一次完成已经插入：读出该照片，返回 200。
+7. 第 5 步已经成功但第 6 步失败：返回 500 `internal_error`。再次 `complete` 看到 `object_completed_at` 后只做第 6 步。
 
-持锁期间不做对象存储网络调用。分片上传则在持锁期间调用 `uploadPart`，因为覆盖同一片必须和完成互斥；完成请求在第 1 步持锁校验，提交后再呼叫存储。
+完成路径在持有会话行锁期间不做网络 I/O。分片路径可以在持有该行锁期间调用 `uploadPart`。完成在释放行锁之前把状态提交为 `completing`，对象存储调用期间另持一把会随数据库连接断开而释放的互斥。随后的分片与中止得到 409：既改不到这次完成所使用的 ETag，也不会中止这次 multipart。
 
 ### 5.3 分片规则
 
@@ -411,6 +418,8 @@ owners/{userId}/photos/{photoId}/original
 ### 5.4 过期与中止
 
 `expires_at = now + 24h`。没有后台扫表任务，那是 Phase 3 worker 的范围。
+
+过期处理只针对 `open`。`completing` 即使过了 `expires_at` 也不 Abort。这种会话上的分片与中止返回 409 `upload_completing`，完成请求继续第 5.2 节。
 
 过期的 `open` 会话在下一次分片、完成、中止，或该用户再次创建会话时处理：
 
@@ -443,7 +452,7 @@ RAW，至少覆盖这些常见类型，本阶段也只接受这些：
 - `image/x-sony-arw`
 - `image/x-adobe-dng`
 
-比较在 trim 与小写化之后进行。不读取文件头，不因为字节不像 JPEG 而拒绝。
+比较在 trim 与小写化之后进行。不读取文件头。声明与字节不符的对象仍会以 `processing` 入库，由此造成的失败留在 Phase 3。
 
 ### 6.2 上限
 
@@ -474,7 +483,7 @@ RAW，至少覆盖这些常见类型，本阶段也只接受这些：
 
 本阶段原图不读 `S3_PUBLIC_BASE_URL`。该变量留给以后的缩略图或公开基址，Phase 3 再用。
 
-PATCH 的字段集合以第 4.8 节为全部。删除以第 4.9 节为全部：行先走，对象后走，对象失败不改变 204。
+PATCH 的字段集合以第 4.8 节为全部。删除以第 4.9 节为全部：行先走，再尽力删原图；`thumb_key` 非空时缩略图同样尽力删。对象失败不改变 204。
 
 个人库不使用 403 表示「这是别人的照片」。403 仍只属于 Phase 1 里「凭证种类不允许」的那些 Key 管理路由。
 
@@ -531,10 +540,11 @@ PATCH 的字段集合以第 4.8 节为全部。删除以第 4.9 节为全部：�
 6. `byteSize` 为 0 或 33554433 时创建失败，文案「文件大小须为 1 字节到 32 MiB」。白名单之外的 `contentType` 返回「不支持的文件类型」。白名单中的四种 RAW 与 `image/heic` 可以创建会话。
 7. 两片式续传：第一片至少 5 MiB，第二片补满声明大小，完成后对象字节数等于 `byteSize`。只上传一片且该片等于声明大小时，即使小于 5 MiB 也能完成。非最后一片小于 5 MiB，或字节之和不等于声明大小，或编号空缺：完成返回 400「分片不合法」，且没有 `photos` 行。
 8. 同一 `partNumber` 上传两次，完成使用的是后一片的字节。
-9. 中止后再次上传分片得到 409 `upload_closed`。完成后再次完成得到 200 和同一 `id`。完成后中止得到 409 `upload_completed`。让完成时的存储调用失败：没有 `photos` 行，会话仍是 `open`。
+9. 中止后再次上传分片得到 409 `upload_closed`。完成后再次完成得到 200 和同一 `id`。完成后中止得到 409 `upload_completed`。让完成时的存储调用失败：没有 `photos` 行，会话从 `completing` 回到 `open`。
 10. 把时钟拨过 `expiresAt` 再上传分片：假存储记录到 Abort，会话变为 `aborted`，响应 409 `upload_closed`。
 11. `S3_SIGNED_URL_TTL` 的解析：空白为 900 秒，`15m` 为 900 秒，超过 7 天拒绝。这一条可以留在本文件，也可以放在 `apps/api/test` 下单独的存储配置测试。列表返回的 `originalUrlExpiresAt` 等于注入时钟加上测试传入的 TTL。
 12. `npm test` 的分层边界检查通过。身份测试与 `GET /health` 在不配置 `S3_*` 时仍然通过。
+13. 完成进行中：假存储在 `completeMultipartUpload` 内阻塞，且会话状态已经是 `completing`。此时覆盖分片与中止都返回 409 `upload_completing`，文案「上传正在完成」。分片行与未完成的 multipart 保持进入 `completing` 之前的内容。阻塞结束后，完成仍能插入照片。
 
 ## 11. 范围外与后续阶段
 
@@ -569,7 +579,7 @@ Phase 3 可以读取本阶段留下的 `processing` 行。本阶段不预插 `jo
 ## 13. 已确认决策
 
 - 上传是服务端中转的 S3 multipart：创建会话、分片、完成、中止。
-- 方案 A：`upload_sessions` 记录进行中的上传；Complete 成功后才插入 `photos`，状态 `processing`。
+- 方案 A：`upload_sessions` 记录进行中的上传。呼叫对象存储完成之前会话进入 `completing`，此期间拒绝分片与中止。存储成功后才插入 `photos`，状态 `processing`。
 - 对象键在创建时由预生成的 photo UUID 决定，完成时插入同一 id。
 - 单文件 32 MiB。类型白名单按第 6.1 节固定。
 - 列表和详情返回可配置 TTL 的签名 GET URL，默认 15 分钟。

@@ -13,11 +13,11 @@
 - 上传：服务端中转。全程经 API 的 S3 multipart 续传（创建会话 → 分片 → 完成），客户端可中止
 - 单文件上限 32 MiB（33554432 字节）
 - content-type 白名单，本阶段固定为：`image/jpeg`、`image/png`、`image/webp`、`image/heic`、`image/heif`，以及 RAW：`image/x-canon-cr2`、`image/x-nikon-nef`、`image/x-sony-arw`、`image/x-adobe-dng`
-- 完成 multipart 后才插入 `photos`，初始状态 `processing`。进行中的上传写在 `upload_sessions`（方案 A）
+- 完成 multipart 后才插入 `photos`，初始状态 `processing`。进行中的上传写在 `upload_sessions`（方案 A）。呼叫对象存储完成之前会话先进入 `completing`，此期间分片与中止返回 409
 - 对象键在创建会话时确定：预生成 photo UUID，键为 `owners/{userId}/photos/{photoId}/original`，完成时插入同一 id
 - 列出与查看仅限该主人的照片。列表和详情返回签名 GET URL，TTL 由 `S3_SIGNED_URL_TTL` 配置，默认 `15m`
 - 修改仅限 `description`、`tags`、`taken_at`、`location_text`、`latitude`、`longitude`。不可改 `content_type`、`object_key`、`status`
-- 删除：先删 `photos` 行，对象尽力删。对象删除失败只记日志，接口仍成功
+- 删除：先删 `photos` 行，原图尽力删；`thumb_key` 非空时缩略图也尽力删。对象删除失败只记日志，接口仍成功
 - 他人的 JWT 或 Key 不能读写这批照片。已认证的越权访问统一表现为「未找到」
 - 对象存储配置只来自环境变量（既有 `S3_*`，另加 `S3_SIGNED_URL_TTL`）
 
