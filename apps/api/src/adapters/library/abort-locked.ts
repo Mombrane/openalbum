@@ -9,7 +9,8 @@ export async function abortLocked(
   now: Date,
 ): Promise<"aborted" | "missing" | "completing" | "completed" | "storage_error"> {
   let outcome: "aborted" | "missing" | "completing" | "completed" | "storage_error" = "missing";
-  await deps.sessions.transactById(sessionId, async (row, tx) => {
+  try {
+    await deps.sessions.transactById(sessionId, async (row, tx) => {
     if (!row || row.ownerId !== actor.userId) {
       outcome = "missing";
       return;
@@ -44,6 +45,10 @@ export async function abortLocked(
     }
     await tx.markAborted(sessionId, now);
     outcome = "aborted";
-  });
+    });
+  } catch (error) {
+    if (outcome === "storage_error") return "storage_error";
+    throw error;
+  }
   return outcome;
 }

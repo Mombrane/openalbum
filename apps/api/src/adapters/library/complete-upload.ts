@@ -102,10 +102,17 @@ export async function completeUpload(
       } catch (error) {
         const name = errorName(error);
         if (name === "NoSuchUpload") {
-          const head = await deps.storage.headObject({ key: current.objectKey });
-          if (head?.byteSize === current.byteSize) {
-            await deps.sessions.markObjectCompleted(sessionId, now);
-          } else {
+          let objectMarked = false;
+          try {
+            const head = await deps.storage.headObject({ key: current.objectKey });
+            if (head?.byteSize === current.byteSize) {
+              await deps.sessions.markObjectCompleted(sessionId, now);
+              objectMarked = true;
+            }
+          } catch {
+            objectMarked = false;
+          }
+          if (!objectMarked) {
             const reopened = await deps.sessions.reopenIfNoObject(sessionId, now);
             if (reopened === "reopened") {
               deps.log.warn("对象存储失败", {

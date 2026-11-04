@@ -38,6 +38,9 @@ export type FakeObjectStorage = ObjectStorage & {
   failDelete: boolean;
   failComplete: boolean;
   failAbort: boolean;
+  failUploadPart: boolean;
+  failHeadObject: boolean;
+  completeAsNoSuchUpload: boolean;
   createCalls: number;
   blockComplete(gate: StorageGate | null): void;
   completedBytes(key: string): Buffer | null;
@@ -56,6 +59,9 @@ export function createFakeObjectStorage(): FakeObjectStorage {
     failDelete: false,
     failComplete: false,
     failAbort: false,
+    failUploadPart: false,
+    failHeadObject: false,
+    completeAsNoSuchUpload: false,
     createCalls: 0,
 
     blockComplete(gate: StorageGate | null) {
@@ -75,6 +81,9 @@ export function createFakeObjectStorage(): FakeObjectStorage {
     },
 
     async uploadPart(input) {
+      if (storage.failUploadPart) {
+        throw Object.assign(new Error("hidden"), { name: "InternalError" });
+      }
       const record = uploads.get(input.uploadId);
       if (!record || record.key !== input.key) {
         throw Object.assign(new Error("hidden"), { name: "NoSuchUpload" });
@@ -86,6 +95,9 @@ export function createFakeObjectStorage(): FakeObjectStorage {
 
     async completeMultipartUpload(input) {
       storage.completeCalls += 1;
+      if (storage.completeAsNoSuchUpload) {
+        throw Object.assign(new Error("hidden"), { name: "NoSuchUpload" });
+      }
       const record = uploads.get(input.uploadId);
       if (!record || record.key !== input.key) {
         throw Object.assign(new Error("hidden"), { name: "NoSuchUpload" });
@@ -122,6 +134,9 @@ export function createFakeObjectStorage(): FakeObjectStorage {
     },
 
     async headObject(input) {
+      if (storage.failHeadObject) {
+        throw Object.assign(new Error("hidden"), { name: "InternalError" });
+      }
       const body = completed.get(input.key);
       if (!body) return null;
       return { byteSize: body.length };

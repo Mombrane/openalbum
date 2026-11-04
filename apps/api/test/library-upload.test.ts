@@ -376,3 +376,63 @@ serial("过期 uploadPart 触发中止", async () => {
   const keyRow = await pool.query("SELECT object_key FROM upload_sessions WHERE id = $1", [sessionId]);
   assert.equal(storage.completedBytes(keyRow.rows[0].object_key), null);
 });
+
+serial("uploadPart 存储失败返回 storage_error 而非抛错", async () => {
+  resetDeps();
+  await pool.query("TRUNCATE TABLE users CASCADE");
+  await seedUser();
+  const { sessionId } = await createOpenJpeg(4);
+  storage.failUploadPart = true;
+  const part = await uploadPart(deps, actor(), { sessionId, partNumber: 1, body: Buffer.from("abcd") }, clock.now());
+  assert.equal(part.ok, false);
+  if (!part.ok) {
+    assert.equal(part.status, 500);
+    assert.equal(part.code, "storage_error");
+  }
+  const rows = await pool.query("SELECT 1 FROM upload_parts WHERE upload_session_id = $1", [sessionId]);
+  assert.equal(rows.rowCount, 0);
+});
+
+serial("abortUpload 存储中止失败返回 storage_error", async () => {
+  resetDeps();
+  await pool.query("TRUNCATE TABLE users CASCADE");
+  await seedUser();
+  const { sessionId } = await createOpenJpeg(4);
+  storage.failAbort = true;
+  const result = await abortUpload(deps, actor(), sessionId, clock.now());
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.code, "storage_error");
+  const session = await pool.query("SELECT status FROM upload_sessions WHERE id = $1", [sessionId]);
+  assert.equal(session.rows[0]?.status, "open");
+});
+
+serial("NoSuchUpload 后 headObject 抛错走失败分支", async () => {
+  resetDeps();
+  await pool.query("TRUNCATE TABLE users CASCADE");
+  await seedUser();
+  const { sessionId } = await createOpenJpeg(4);
+  await uploadPart(deps, actor(), { sessionId, partNumber: 1, body: Buffer.from("abcd") }, clock.now());
+  storage.completeAsNoSuchUpload = true;
+  storage.failHeadObject = true;
+  const done = await completeUpload(deps, actor(), sessionId, clock.now());
+  assert.equal(done.ok, false);
+  if (!done.ok) assert.equal(done.code, "storage_error");
+  const session = await pool.query("SELECT status FROM upload_sessions WHERE id = $1", [sessionId]);
+  assert.equal(session.rows[0]?.status, "open");
+});
+
+serial("listExpiredOpen 失败仍创建新会话", async () => {
+  resetDeps();
+  await pool.query("TRUNCATE TABLE users CASCADE");
+  await seedUser();
+  const realSessions = createUploadSessionRepository(pool);
+  deps.sessions = {
+    ...realSessions,
+    async listExpiredOpen() {
+      throw new Error("list down");
+    },
+  };
+  const created = await createUpload(deps, actor(), { contentType: "image/jpeg", byteSize: 10 }, clock.now());
+  assert.equal(created.ok, true);
+  assert.ok(logEntries.some((entry) => entry.message === "清扫中止失败"));
+});

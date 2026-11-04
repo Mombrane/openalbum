@@ -28,19 +28,35 @@ export async function createUpload(
     return invalidSize();
   }
 
-  const expired = await deps.sessions.listExpiredOpen(actor.userId, now);
-  for (const session of expired) {
-    try {
-      await abortLocked(deps, actor, session.id, now);
-    } catch {
-      deps.log.warn("清扫中止失败", {
-        userId: actor.userId,
-        photoId: session.photoId,
-        objectKey: session.objectKey,
-        uploadSessionId: session.id,
-        reason: "expired",
-      });
+  try {
+    const expired = await deps.sessions.listExpiredOpen(actor.userId, now);
+    for (const session of expired) {
+      try {
+        const swept = await abortLocked(deps, actor, session.id, now);
+        if (swept === "storage_error") {
+          deps.log.warn("清扫中止失败", {
+            userId: actor.userId,
+            photoId: session.photoId,
+            objectKey: session.objectKey,
+            uploadSessionId: session.id,
+            reason: "expired",
+          });
+        }
+      } catch {
+        deps.log.warn("清扫中止失败", {
+          userId: actor.userId,
+          photoId: session.photoId,
+          objectKey: session.objectKey,
+          uploadSessionId: session.id,
+          reason: "expired",
+        });
+      }
     }
+  } catch {
+    deps.log.warn("清扫中止失败", {
+      userId: actor.userId,
+      reason: "expired",
+    });
   }
 
   const photoId = deps.ids.nextId();

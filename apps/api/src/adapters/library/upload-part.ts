@@ -15,7 +15,8 @@ export async function uploadPart(
   let early: LibraryResult<{ part: { partNumber: number; etag: string; byteSize: number } }> | null = null;
   let expireAfter = false;
 
-  await deps.sessions.transactById(input.sessionId, async (row, tx) => {
+  try {
+    await deps.sessions.transactById(input.sessionId, async (row, tx) => {
     if (!row || row.ownerId !== actor.userId) {
       early = notFound();
       return;
@@ -81,7 +82,10 @@ export async function uploadPart(
       });
       throw error;
     }
-  });
+    });
+  } catch {
+    return storageError();
+  }
 
   if (expireAfter) {
     const aborted = await abortLocked(deps, actor, input.sessionId, now);
