@@ -92,7 +92,7 @@ export DATABASE_URL='postgres://photo:CHANGE_ME_DB_PASSWORD@127.0.0.1:5432/photo
 | `apps/api/src/dao/upload-session-repository.ts` | 会话、分片、`FOR UPDATE`、`completing`、advisory lock、完成插入 |
 | `apps/api/src/dao/index.ts` | 导出两个仓储 |
 | `apps/api/src/adapters/library/messages.ts` | 固定文案与 `LibraryResult` |
-| `apps/api/src/adapters/library/deps.ts` | `LibraryDeps` |
+| `apps/api/src/adapters/library/deps.ts` | `LibraryDeps` 六个字段：`photos`、`sessions`、`storage`、`ids`、`signedUrlTtlSeconds`、`log` |
 | `apps/api/src/adapters/library/error-name.ts` | 只取 `error.name` |
 | `apps/api/src/adapters/library/photo-response.ts` | `PhotoResponse` 与签发 |
 | `apps/api/src/adapters/library/create-upload.ts` | 清扫、创建 multipart、插入会话 |
@@ -104,12 +104,12 @@ export DATABASE_URL='postgres://photo:CHANGE_ME_DB_PASSWORD@127.0.0.1:5432/photo
 | `apps/api/src/adapters/library/patch-photo.ts` | 元数据补丁 |
 | `apps/api/src/adapters/library/delete-photo.ts` | 先行后对象 |
 | `apps/api/src/adapters/index.ts` | 导出库用例 |
-| `apps/api/src/interfaces/http/register-photos.ts` | 八个路由 |
+| `apps/api/src/interfaces/http/register-photos.ts` | 八个路由。签名 `(app, identity, library, clock)` |
 | `apps/api/src/interfaces/http/send-library-error.ts` | 库错误体。不放宽身份用的 `AuthError` |
 | `apps/api/src/interfaces/http/error-handler.ts` | 仅分片路由映射 413 与非法媒体类型 |
 | `apps/api/src/interfaces/http/auth-logger.ts` | redact 补上 `originalUrl`，保留原路径 |
 | `apps/api/src/interfaces/index.ts` | 导出 `registerPhotoRoutes` |
-| `apps/api/src/wire-library.ts` | 组合根装配。禁止移入五层目录 |
+| `apps/api/src/wire-library.ts` | `createLibraryDeps` 返回上述 `LibraryDeps`。禁止移入五层目录 |
 | `apps/api/src/app.ts` | 可选 `storage` 与 `signedUrlTtlSeconds` |
 | `apps/api/src/index.ts` | 先 `loadStorageConfig`，失败则退出 |
 | `apps/api/test/upload-schema.test.ts` | DDL 与 env 示例 |
@@ -761,8 +761,6 @@ export function decodePhotoCursor(raw: string): { createdAt: Date; id: string } 
 
 ```typescript
 import type { LibraryActor, MetadataPatch, Photo, UploadPartRecord, UploadSession, UploadStatus } from "./model.js";
-
-export type ClockNow = Date;
 
 export type ObjectStorage = {
   createMultipartUpload(input: { key: string; contentType: string }): Promise<{ uploadId: string }>;
@@ -1449,7 +1447,7 @@ WHERE id = $1 AND status = 'open' AND object_completed_at IS NULL
 
 `rowCount` 不是 1 就抛错。
 
-`tryCompletionLock` 从 photo UUID 取互斥键。不要用会在事务结束时释放的 `pg_advisory_xact_lock`。
+`tryCompletionLock` 的互斥键来自会话 id（`sessionId`），不是 photo id。`completionLockKeys(sessionId)` 取该 UUID 的前 16 个十六进制字符。不要用会在事务结束时释放的 `pg_advisory_xact_lock`。
 
 ```typescript
 export function completionLockKeys(sessionId: string): [number, number] {
@@ -1502,11 +1500,11 @@ INSERT INTO photos (
 UPDATE upload_sessions
 SET status = 'completed', updated_at = $2
 WHERE id = $1
-  AND status IN ('completing', 'open')
+  AND status = 'completing'
   AND object_completed_at IS NOT NULL
 ```
 
-`rowCount` 不是 1 就抛错并回滚。成功则提交并返回 `"inserted"`。
+只接受已经是 `completing` 的会话。仍为 `open` 时 `rowCount` 为 0，抛错并回滚，不要把它收成 `completed`。`rowCount` 不是 1 就抛错并回滚。成功则提交并返回 `"inserted"`。
 
 从 `dao/index.ts` 导出这两个工厂。仓储文件可以 import 领域类型，不得 import `fastify`、`@aws-sdk/*` 或适配层。
 
@@ -1546,10 +1544,12 @@ git commit -m "feat: 实现照片与上传会话仓储"
 - Test: `apps/api/test/library-upload.test.ts`
 
 **Interfaces:**
-- Consumes: `LibraryDeps` 将由本任务定义；`ObjectStorage`、`UploadSessionRepository`、`PhotoRepository`、`FakeObjectStorage`、`createStorageGate`
+- Consumes: `ObjectStorage`、`UploadSessionRepository`、`PhotoRepository`、`LibraryLog`、`FakeObjectStorage`、`createStorageGate`
 - Produces:
+  - `LibraryDeps = { photos: PhotoRepository; sessions: UploadSessionRepository; storage: ObjectStorage; ids: { nextId(): string }; signedUrlTtlSeconds: number; log: LibraryLog }`
   - `LibraryResult<T> = { ok: true; status: 200 | 201 | 204; body: T } | { ok: false; status: 400 | 404 | 409 | 500; code: "validation_error" | "not_found" | "upload_closed" | "upload_completing" | "upload_completed" | "storage_error" | "internal_error"; message: string }`
-  - `createUpload(deps, actor, input: { contentType: string; byteSize: number }, now): Promise<LibraryResult<{ upload: UploadSessionResponse }>>`
+  - `notFound`、`uploadClosed`、`uploadCompleting`、`uploadCompleted`、`badPart`、`storageError`、`uploadIncomplete`、`deleteIncomplete`、`unsupportedType`、`invalidSize`。`deleteIncomplete()` 为 500 `internal_error`，文案「删除未能完成」。Task 6 只消费它，不再改 `messages.ts`
+  - `createUpload(deps: LibraryDeps, actor, input: { contentType: string; byteSize: number }, now): Promise<LibraryResult<{ upload: UploadSessionResponse }>>`
   - `uploadPart(deps, actor, input: { sessionId: string; partNumber: number; body: Buffer }, now): Promise<LibraryResult<{ part: { partNumber: number; etag: string; byteSize: number } }>>`
   - `completeUpload(deps, actor, sessionId: string, now): Promise<LibraryResult<{ photo: PhotoResponse }>>`
   - `abortUpload(deps, actor, sessionId: string, now): Promise<LibraryResult<undefined>>`
@@ -1652,9 +1652,22 @@ Expected: 退出码非 0。`createUpload` 未定义。
 
 - [ ] **Step 3: 实现用例**
 
-`messages.ts` 导出 `LIBRARY_MESSAGES` 与 `LibraryResult`。固定文案使用 Global Constraints 那一组。提供 `notFound`、`uploadClosed`、`uploadCompleting`、`uploadCompleted`、`badPart`、`storageError`、`uploadIncomplete`、`unsupportedType`、`invalidSize`。不要把 401 或 413 放进用例结果；那两档留在接口层。
+`messages.ts` 导出 `LIBRARY_MESSAGES` 与 `LibraryResult`。固定文案使用 Global Constraints 那一组。提供 `notFound`、`uploadClosed`、`uploadCompleting`、`uploadCompleted`、`badPart`、`storageError`、`uploadIncomplete`、`deleteIncomplete`、`unsupportedType`、`invalidSize`。`deleteIncomplete` 与 `uploadIncomplete` 一样是 500 `internal_error`，文案分别是「删除未能完成」和「上传未能完成」。不要把 401 或 413 放进用例结果；那两档留在接口层。Task 6 调用 `deleteIncomplete()`，不要再改这个文件。
 
-`error-name.ts` 只读 `name`。`deps.ts` 按本任务 Interfaces 组装，不 import DAO 或网关。
+`error-name.ts` 只读 `name`。`deps.ts` 只依赖领域端口，不 import DAO 或网关。字段与 Task 7 的 `createLibraryDeps` 返回值一致；`ids` 由组合根注入，不在适配层自己生成：
+
+```typescript
+import type { LibraryLog, ObjectStorage, PhotoRepository, UploadSessionRepository } from "../../domain/library/ports.js";
+
+export type LibraryDeps = {
+  photos: PhotoRepository;
+  sessions: UploadSessionRepository;
+  storage: ObjectStorage;
+  ids: { nextId(): string };
+  signedUrlTtlSeconds: number;
+  log: LibraryLog;
+};
+```
 
 `photo-response.ts` 的 `toPhotoResponse(deps, photo, now)` 调用 `presignGet({ key: photo.objectKey, expiresInSeconds: deps.signedUrlTtlSeconds, now })`。`originalUrlExpiresAt` 用返回的 `expiresAt.toISOString()`。签发抛错时不要在这里吞掉。
 
@@ -1710,7 +1723,7 @@ export async function abortLocked(
 3. 若 `error.name === "NoSuchUpload"`，再 `headObject`。`byteSize === session.byteSize` 时同样 `markObjectCompleted`。字节数不符，或 head 抛错，走失败分支。
 4. 其他失败：`reopenIfNoObject`。返回 `"reopened"` 时记「对象存储失败」并返回 `storageError()`，不插入照片。返回 `"kept"` 时不得把会话退回 `open`，直接进入插入步骤。
 
-插入步骤调用 `insertPhotoAndComplete`。抛错时记「上传未能完成」并返回 `uploadIncomplete()`。返回 `"inserted"` 时响应 201；返回 `"exists"` 时若照片仍可见则 200，不可见则 `notFound()`。签发失败返回 `storageError()`，不删除已经插入的行。
+插入步骤调用 `insertPhotoAndComplete`。调用前会话必须已经是 `completing`，并且 `object_completed_at` 已经写下。抛错时记「上传未能完成」并返回 `uploadIncomplete()`。返回 `"inserted"` 时响应 201；返回 `"exists"` 时若照片仍可见则 200，不可见则 `notFound()`。签发失败返回 `storageError()`，不删除已经插入的行。
 
 `abort-upload.ts` 只调用 `abortLocked`：`"missing"` → 404，`"completing"` → 409 `upload_completing`，`"completed"` → 409 `upload_completed`，`"storage_error"` → 500 `storage_error`，`"aborted"` → `{ ok: true, status: 204, body: undefined }`。
 
@@ -1748,7 +1761,7 @@ git commit -m "feat: 实现上传会话的创建、分片、完成与中止"
 - Test: `apps/api/test/library-photos.test.ts`
 
 **Interfaces:**
-- Consumes: `LibraryDeps`、`toPhotoResponse`、`MetadataPatch`、`encodePhotoCursor`、`isVisiblePhoto`、`deleteIncomplete`
+- Consumes: Task 5 的 `LibraryDeps` 与 `deleteIncomplete()`（已在 `messages.ts` 导出）、`toPhotoResponse`、`MetadataPatch`、`encodePhotoCursor`、`isVisiblePhoto`
 - Produces:
   - `listPhotos(deps, actor, query: { limit: number; cursor: { createdAt: Date; id: string } | null }, now): Promise<LibraryResult<{ photos: PhotoResponse[]; nextCursor: string | null }>>`
   - `getPhoto(deps, actor, photoId: string, now): Promise<LibraryResult<{ photo: PhotoResponse }>>`
@@ -1828,8 +1841,8 @@ git commit -m "feat: 实现照片列表、详情、修改与删除"
 **Interfaces:**
 - Consumes: Task 5 与 Task 6 的用例、`requirePrincipal`、`parseUuid`、`parsePhotoLimit`、`decodePhotoCursor`、`normalizeMetadataPatch`、`loadStorageConfig`、`createS3ObjectStorage`、`createFakeObjectStorage`
 - Produces:
-  - `registerPhotoRoutes(app, deps, clock: { now(): Date }): void`
-  - `createLibraryDeps({ pool, storage, signedUrlTtlSeconds, log }): LibraryDeps`
+  - `registerPhotoRoutes(app: FastifyInstance, identity: IdentityDeps, library: LibraryDeps, clock: { now(): Date }): void`
+  - `createLibraryDeps({ pool, storage, signedUrlTtlSeconds, log }): LibraryDeps`。返回值的六个字段就是 Task 5 的 `LibraryDeps`：`photos` 与 `sessions` 由 `pool` 造出，`ids` 用现有 `createIdGenerator()`，其余三项原样传入
   - `BuildAppOptions` 增加可选 `storage?: ObjectStorage` 与 `signedUrlTtlSeconds?: number`
   - 未传 `storage` 时用 `createFakeObjectStorage()`，TTL 用 `900`
   - 生产入口先 `loadStorageConfig`，失败时 `console.error` 文案并 `process.exit(1)`，不调用 `listen`
@@ -1871,7 +1884,7 @@ Expected: 退出码非 0。创建上传实际是 404，或入口还没在监听�
 
 `send-library-error.ts` 按 `error.status` 发送 `{ error: { code, message } }`。不要修改 `AuthError` 的状态联合。
 
-`register-photos.ts` 注册这些路由。先取 Bearer，`requirePrincipal` 失败就 `sendAuthError`。用例返回的 `now` 一律是 `clock.now()`。
+`register-photos.ts` 的签名是 `registerPhotoRoutes(app, identity, library, clock)`。`identity` 是现有的 `IdentityDeps`，只交给 `requirePrincipal(identity, header)`，与 `registerMeRoute` 相同。`isPrincipal` 失败就 `sendAuthError`。成功后把 `Principal` 收成 `LibraryActor`（`userId`、`credentialKind`、`credentialId` 三字段同名同义）再交给库用例。库用例的第一个参数永远是 `library`，不是 `identity`。`now` 一律是 `clock.now()`。不要把 `RefreshTokenRepository` 传进库路由。
 
 | 方法与路径 | 行为 |
 |------------|------|
@@ -1897,9 +1910,45 @@ app.addContentTypeParser(
 
 `auth-logger.ts` 的 `paths` 保留现有七项，并追加 `"originalUrl"`、`"photo.originalUrl"`、`"photos[*].originalUrl"`。
 
-`wire-library.ts` 放在 `apps/api/src/wire-library.ts`。它 import DAO 与 `createIdGenerator`，返回 `LibraryDeps`。`libraryLogFromFastify` 只把 `LibraryLogFields` 里的字段和静态中文 message 交给 logger，不传错误对象。
+`wire-library.ts` 放在 `apps/api/src/wire-library.ts`。它 import DAO 与 `createIdGenerator`，返回 Task 5 的 `LibraryDeps`。`libraryLogFromFastify` 只把 `LibraryLogFields` 里的字段和静态中文 message 交给 logger，不传错误对象。
 
-`buildApp` 在身份路由之后调用 `registerPhotoRoutes`。未传入 `storage` 时使用 `createFakeObjectStorage()`，未传入 TTL 时使用 `900`。不要在这里调用 `loadStorageConfig`，也不要读取 `S3_ACCESS_KEY_ID`。
+```typescript
+export function createLibraryDeps(input: {
+  pool: pg.Pool;
+  storage: ObjectStorage;
+  signedUrlTtlSeconds: number;
+  log: LibraryLog;
+}): LibraryDeps {
+  return {
+    photos: createPhotoRepository(input.pool),
+    sessions: createUploadSessionRepository(input.pool),
+    storage: input.storage,
+    ids: createIdGenerator(),
+    signedUrlTtlSeconds: input.signedUrlTtlSeconds,
+    log: input.log,
+  };
+}
+```
+
+`buildApp` 同时造出两套依赖，再按这个顺序装配。未传入 `storage` 时使用 `createFakeObjectStorage()`，未传入 TTL 时使用 `900`。不要在这里调用 `loadStorageConfig`，也不要读取 `S3_ACCESS_KEY_ID`。
+
+```typescript
+const identity = await createIdentityDeps({ config, clock, pool, log: authLogFromFastify(app.log) });
+const storage = options.storage ?? createFakeObjectStorage();
+const signedUrlTtlSeconds = options.signedUrlTtlSeconds ?? 900;
+const library = createLibraryDeps({
+  pool,
+  storage,
+  signedUrlTtlSeconds,
+  log: libraryLogFromFastify(app.log),
+});
+registerErrorHandler(app);
+registerHealthRoute(app);
+registerAuthRoutes(app, identity);
+registerMeRoute(app, identity);
+registerApiKeyRoutes(app, identity);
+registerPhotoRoutes(app, identity, library, clock);
+```
 
 `index.ts` 在 `loadAuthConfig` 和 `listen` 之前：
 
@@ -1943,7 +1992,7 @@ git commit -m "feat: 接通个人库 HTTP 路由与存储组合根"
 
 **Interfaces:**
 - Consumes: Task 7 的 `app`、`storage`、`pool`、`clock`、`serial`，以及 `POST /auth/register`、`POST /api-keys`
-- Produces: 设计 §10 第 1 到第 11 条和第 13 条的 HTTP 断言。第 12 条由 Task 9 的 `npm test` 覆盖。第 11 条的解析表已经在 `storage-config.test.ts`，这里补列表上的 `originalUrlExpiresAt`
+- Produces: 设计 §10 第 1 到第 11 条和第 13 条的 HTTP 断言。设计 §10 第 12 条（分层边界）由 Task 9 的 `npm test` 覆盖，不在本任务编号里。另有一节「附加 HTTP 边角」，不是设计 §10 的第 12 条。第 11 条的解析表已经在 `storage-config.test.ts`，这里补列表上的 `originalUrlExpiresAt`
 
 - [ ] **Step 1: 把验收用例追加到同一个文件**
 
@@ -1960,11 +2009,13 @@ git commit -m "feat: 接通个人库 HTTP 路由与存储组合根"
 9. 中止后再次上传分片得到 409 `upload_closed`。完成后再次完成得到 200 和同一 `id`。完成后中止得到 409 `upload_completed`，照片行还在。`failComplete = true` 时完成得到 500 `storage_error`，没有 `photos` 行，会话变回 `open`。然后把 `failComplete` 设回 `false`。
 10. `clock.set(new Date(expiresAt + 1))` 后上传分片：`abortCount` 增加，会话为 `aborted`，响应 409 `upload_closed`。
 11. 本文件里列表项的 `originalUrlExpiresAt` 等于测试时钟加上 `900` 秒。配置解析的空白、`15m` 和超过 7 天已经在 `apps/api/test/storage-config.test.ts`，不要另写一套时长语法。
-12. 分片正文超过 `33554432` 字节时，这一条路由返回 413 `payload_too_large`，「文件超过 32 MiB」。`Content-Type: text/plain` 返回 400「分片不合法」。`PUT` 与 `POST` 各成功上传一次。`GET /photos/uploads` 返回 400「标识不合法」。`limit=01` 与未知查询参数返回 400「请求不合法」。
-13. **完成进行中：** 把下面的用例放进 `personal-library.test.ts`。`uploadJpeg` 用 Access JWT 创建 `byteSize: 4` 的 jpeg 会话并上传 `Buffer.from("abcd")`，返回 `{ sessionId, photoId }`。`auth` 带上 `authorization: Bearer ...`。
+
+**附加 HTTP 边角**（不是设计 §10 第 12 条；那一条在 Task 9）：分片正文超过 `33554432` 字节时，这一条路由返回 413 `payload_too_large`，「文件超过 32 MiB」。`Content-Type: text/plain` 返回 400「分片不合法」。`PUT` 与 `POST` 各成功上传一次。`GET /photos/uploads` 返回 400「标识不合法」。`limit=01` 与未知查询参数返回 400「请求不合法」。
+
+**设计 §10 第 13 条，完成进行中：** 把下面的用例放进 `personal-library.test.ts`。`uploadJpeg` 用 Access JWT 创建 `byteSize: 4` 的 jpeg 会话并上传 `Buffer.from("abcd")`，返回 `{ sessionId, photoId }`。`auth` 带上 `authorization: Bearer ...`。
 
 ```typescript
-serial("验收 13 完成进行中时分片与中止得到 409，结束后仍插入照片", async () => {
+serial("设计 §10 第 13 条：完成进行中时分片与中止得到 409，结束后仍插入照片", async () => {
   await reset();
   const owner = await registerAccess("owner13@example.com");
   const { sessionId, photoId } = await uploadJpeg(owner.accessToken);
@@ -2038,7 +2089,7 @@ export DATABASE_URL='postgres://photo:CHANGE_ME_DB_PASSWORD@127.0.0.1:5432/photo
 npx tsx --test apps/api/test/personal-library.test.ts
 ```
 
-Expected: 退出码 0，`# fail 0`。第 13 条在释放栅栏前就得到 409。若超时，说明 `completeMultipartUpload` 仍握着会话行锁，回到 Task 5 把提交 `completing` 放在存储调用之前。若其他断言失败，修正对应路由或用例，不要放宽断言。`gate.release()` 放在 `finally` 里，避免断言失败后 `pending` 挂住进程。
+Expected: 退出码 0，`# fail 0`。设计 §10 第 13 条在释放栅栏前就得到 409。若超时，说明 `completeMultipartUpload` 仍握着会话行锁，回到 Task 5 把提交 `completing` 放在存储调用之前。若其他断言失败，修正对应路由或用例，不要放宽断言。`gate.release()` 放在 `finally` 里，避免断言失败后 `pending` 挂住进程。
 
 - [ ] **Step 3: Commit**
 
@@ -2166,18 +2217,18 @@ git commit -m "docs: 将 Phase 2 状态标记为 done"
 | §3.2 八个用例，适配层不引用 DAO / 网关 | Task 5、Task 6；Task 9 源码扫描 | 已覆盖 |
 | §3.3 `FOR UPDATE` 与应用生成 UUID | Task 4 | 已覆盖 |
 | §3.4 真 S3 与内存假存储，假 URL 为 `http://storage.invalid/get` | Task 3 | 已覆盖 |
-| §3.5 原始字节、`bodyLimit` 33554432、只有分片路由映射 413 | Task 7；Task 8 第 12 条 | 已覆盖 |
+| §3.5 原始字节、`bodyLimit` 33554432、只有分片路由映射 413 | Task 7；Task 8「附加 HTTP 边角」 | 已覆盖 |
 | §3.6 未注入存储时用假实现且不读密钥；生产入口先校验配置 | Task 7 的 `buildApp`、`index.ts` 与 `storage-startup.test.ts` | 已覆盖 |
 | §4.1–4.3 创建与分片，含覆盖、累计上限、状态码 | Task 5、Task 7、Task 8 | 已覆盖 |
-| §4.4、§5.2 completing 在 `completeMultipartUpload` 之前提交 | Global Constraints；Task 5 完成用例；Task 8 第 13 条 | 已覆盖 |
+| §4.4、§5.2 completing 在 `completeMultipartUpload` 之前提交 | Global Constraints；Task 5 完成用例；Task 8 设计 §10 第 13 条 | 已覆盖 |
 | §4.4 另一完成请求拿不到互斥时 409，且不第二次呼叫存储 | Task 4 `pg_try_advisory_lock`；Task 5 与 Task 8 都断言 `completeCalls` 仍为 1 | 已覆盖 |
 | §4.4 存储失败退回 `open`；对象已完成但插入失败则 500「上传未能完成」，重试不再创建对象 | Task 5 步骤 6 与 `reopenIfNoObject` / `insertPhotoAndComplete`；Task 8 第 9 条 | 已覆盖 |
-| §4.5 中止、已完成后再中止、`completing` 时不 Abort | Task 5 `abortLocked`；Task 8 第 9、13 条 | 已覆盖 |
+| §4.5 中止、已完成后再中止、`completing` 时不 Abort | Task 5 `abortLocked`；Task 8 第 9 条与设计 §10 第 13 条 | 已覆盖 |
 | §4.6–4.8 列表游标、详情字段、PATCH 规则 | Task 2 纯函数；Task 6；Task 8 第 4、11 条 | 已覆盖 |
 | §4.9 先删行，对象与非空 `thumb_key` 尽力删 | Task 6 第 5 条；Task 8 第 5 条 | 已覆盖 |
 | §5.1 DDL | Task 1，SQL 与设计一致 | 已覆盖 |
 | §5.3 分片规则与最多 7 片 | Task 2 `validatePartsForComplete`；Task 8 第 7 条 | 已覆盖 |
-| §5.4 只对 `open` 过期中止，`completing` 过期仍 409 | Task 5；Task 8 第 10、13 条 | 已覆盖 |
+| §5.4 只对 `open` 过期中止，`completing` 过期仍 409 | Task 5；Task 8 第 10 条与设计 §10 第 13 条 | 已覆盖 |
 | §6.1–6.3 白名单与插入列，含 `source_key_id` | Task 2、Task 4 插入 SQL、Task 5 第 4 条、Task 8 第 2、6 条 | 已覆盖 |
 | §7 不读 `S3_PUBLIC_BASE_URL`，个人库不用 403 | Task 1 示例与 README；Task 3 配置对象无该字段；Task 8 第 3 条 | 已覆盖 |
 | §8 配置与 7 天上限 | Task 1 示例；Task 3 `loadStorageConfig`；Task 7 启动退出 | 已覆盖 |
