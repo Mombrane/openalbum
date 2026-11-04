@@ -25,7 +25,7 @@ npm run build -w apps/api
 
 | SHA | 说明 |
 |-----|------|
-| （push 后填写） | test: 锁定个人库领域层不引用对象存储 SDK |
+| `57e8b0f` | test: 锁定个人库领域层不引用对象存储 SDK |
 
 ## 关注点
 
