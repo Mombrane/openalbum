@@ -139,8 +139,16 @@ export function registerPhotoRoutes(
   app.post("/photos/uploads", { schema: { body: uploadBodySchema } }, async (request, reply) => {
     const principal = await requirePrincipal(identity, authorizationHeader(request.headers.authorization));
     if (!isPrincipal(principal)) return sendAuthError(reply, principal);
-    const body = request.body as { contentType: string; byteSize: number };
-    const result = await createUpload(library, toLibraryActor(principal), body, clock.now());
+    const body = request.body as { contentType: unknown; byteSize: unknown };
+    if (typeof body.contentType !== "string" || typeof body.byteSize !== "number" || !Number.isInteger(body.byteSize)) {
+      return sendInvalid(reply, LIBRARY_MESSAGES.invalidBody);
+    }
+    const result = await createUpload(
+      library,
+      toLibraryActor(principal),
+      { contentType: body.contentType, byteSize: body.byteSize },
+      clock.now(),
+    );
     return sendLibraryResult(reply, result);
   });
 

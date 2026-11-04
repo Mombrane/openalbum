@@ -38,7 +38,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const ownsPool = options.pool === undefined;
   const app = Fastify({
     logger: authLoggerOptions(options.logger),
-    ajv: { customOptions: { removeAdditional: false } },
+    ajv: { customOptions: { removeAdditional: false, coerceTypes: false } },
   });
   const identity = await createIdentityDeps({ config, clock, pool, log: authLogFromFastify(app.log) });
   const storage = options.storage ?? createFakeObjectStorage();
