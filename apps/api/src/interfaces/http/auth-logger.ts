@@ -1,7 +1,18 @@
 import type { FastifyServerOptions } from "fastify";
 
 const REDACT = {
-  paths: ["req.body", "req.headers.authorization", "body", "password", "refreshToken", "secret", "accessToken"],
+  paths: [
+    "req.body",
+    "req.headers.authorization",
+    "body",
+    "password",
+    "refreshToken",
+    "secret",
+    "accessToken",
+    "originalUrl",
+    "photo.originalUrl",
+    "photos[*].originalUrl",
+  ],
   censor: "[Redacted]",
 };
 

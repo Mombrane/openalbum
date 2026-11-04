@@ -58,6 +58,8 @@ npm run build -w apps/web
 
 Phase 1 的 `schema.sql` 在身份段增加 `refresh_tokens`。本地仍然用 `docker compose up -d` 后执行该文件。
 
+Phase 2 在 `schema.sql` 的个人库段追加 `upload_sessions` 与 `upload_parts`。签名 GET 的有效期是 `S3_SIGNED_URL_TTL`，默认 `15m`，语法与 `JWT_TTL` 相同，超过 7 天时进程拒绝启动。本阶段不读取 `S3_PUBLIC_BASE_URL`。
+
 ## 密钥清单
 
 - [ ] 数据库口令

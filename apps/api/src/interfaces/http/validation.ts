@@ -18,5 +18,5 @@ export function parseApiKeyName(raw: string): string | { message: string } {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function parseUuid(raw: string): string | { message: string } {
-  return UUID_RE.test(raw) ? raw : { message: MESSAGES.invalidId };
+  return UUID_RE.test(raw) ? raw.toLowerCase() : { message: MESSAGES.invalidId };
 }

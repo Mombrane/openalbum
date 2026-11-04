@@ -30,7 +30,7 @@
 |------:|------|--------|---------|
 | 0 | [phases/00-scaffold.md](phases/00-scaffold.md) | done | 单仓、DDD 空包、Compose、部署占位 |
 | 1 | [phases/01-identity-auth.md](phases/01-identity-auth.md) | done | 用户、Access JWT + Refresh、API Key（仅 HTTP API） |
-| 2 | [phases/02-personal-library.md](phases/02-personal-library.md) | planned | 个人照片增删改查与对象存储 |
+| 2 | [phases/02-personal-library.md](phases/02-personal-library.md) | done | 个人照片增删改查与对象存储 |
 | 3 | [phases/03-processing-pipeline.md](phases/03-processing-pipeline.md) | planned | EXIF、缩略图、视觉描述、嵌入、任务 |
 | 4 | [phases/04-search.md](phases/04-search.md) | planned | 关键词与向量检索 |
 | 5 | [phases/05-shared-albums.md](phases/05-shared-albums.md) | planned | 共享册、口令、角色 |

@@ -11,6 +11,8 @@
     "test": "tsx --test --test-concurrency=1 test/**/*.test.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1161.0",
+    "@aws-sdk/s3-request-presigner": "^3.1161.0",
     "argon2": "^0.45.2",
     "fastify": "^5.6.1",
     "jose": "^6.2.15",
