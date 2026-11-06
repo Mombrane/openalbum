@@ -1,5 +1,5 @@
 import pg from "pg";
-import type { PipelineDeps, PipelineLog } from "./adapters/pipeline/deps.js";
+import type { PipelineDeps, PipelineLog, PipelineLogFields } from "./adapters/pipeline/deps.js";
 import { createPipelineStore } from "./dao/pipeline-store.js";
 import type { EmbedGateway, ExifReader, ObjectStorage, ThumbnailEncoder, VisionGateway } from "./domain/library/ports.js";
 import { createFakeEmbedGateway } from "./gateways/embed/fake-embed.js";
@@ -8,13 +8,22 @@ import type { PipelineConfig } from "./gateways/embed/config.js";
 import { createFakeVisionGateway } from "./gateways/vision/fake-vision.js";
 import { createHttpVisionGateway } from "./gateways/vision/http-vision.js";
 
+const PIPELINE_LOG_KEYS = ["userId", "photoId", "objectKey", "jobId", "jobType", "step", "attempt", "errorCode", "errorName"] as const;
+
 export function createPipelineLogger(write: (line: string) => void): PipelineLog {
+  const emit = (level: "info" | "warn", message: string, fields: PipelineLogFields) => {
+    const safe: Record<string, unknown> = { level, message };
+    for (const key of PIPELINE_LOG_KEYS) {
+      if (fields[key] !== undefined) safe[key] = fields[key];
+    }
+    write(JSON.stringify(safe));
+  };
   return {
     info(message, fields) {
-      write(JSON.stringify({ level: "info", message, ...fields }));
+      emit("info", message, fields);
     },
     warn(message, fields) {
-      write(JSON.stringify({ level: "warn", message, ...fields }));
+      emit("warn", message, fields);
     },
   };
 }
