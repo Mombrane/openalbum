@@ -248,6 +248,11 @@ serial("错误维度与 NaN 不写向量", async () => {
   assert.equal(nanJob.rows[0].last_error, "invalid_embedding");
   const nanRows = await pool.query(`SELECT count(*)::int AS n FROM photo_embeddings WHERE photo_id = $1`, [photoId]);
   assert.equal(nanRows.rows[0].n, 0);
+  assert.equal(
+    again.logs.some((entry) => entry.message === "嵌入数值无效" && entry.fields.errorCode === "invalid_embedding"),
+    true,
+  );
+  assert.equal(again.logs.some((entry) => entry.message.includes("invalid_embedding")), false);
 });
 
 serial("缩略图解码失败立即终态", async () => {
@@ -265,6 +270,67 @@ serial("缩略图解码失败立即终态", async () => {
   const photo = await pool.query(`SELECT status, error_message FROM photos WHERE id = $1`, [photoId]);
   assert.equal(photo.rows[0].status, "failed");
   assert.equal(photo.rows[0].error_message, "thumbnail_failed");
+});
+
+serial("嵌入返回前描述变化则不写向量并退回领取前的 attempts", async () => {
+  await reset();
+  await insertPhoto({ id: photoId, description: "海边", tags: ["海"] });
+  await insertJob({ id: jobId, photoId });
+  const base = createFakeEmbedGateway({ dimensions: 1536 });
+  const embed: ReturnType<typeof createFakeEmbedGateway> = {
+    get calls() {
+      return base.calls;
+    },
+    async embed(input) {
+      await pool.query(`UPDATE photos SET description = 'changed after embed' WHERE id = $1`, [photoId]);
+      return base.embed(input);
+    },
+  };
+  const { deps } = harness({ embed });
+  await deps.storage.putObject({
+    key: `owners/${ownerId}/photos/${photoId}/original`,
+    contentType: "image/jpeg",
+    body: Buffer.from("orig"),
+  });
+  await runOnce(deps, now, 2);
+  const rows = await pool.query(`SELECT count(*)::int AS n FROM photo_embeddings WHERE photo_id = $1`, [photoId]);
+  assert.equal(rows.rows[0].n, 0);
+  const job = await pool.query(`SELECT status, attempts, locked_at FROM jobs WHERE id = $1`, [jobId]);
+  assert.equal(job.rows[0].status, "pending");
+  assert.equal(job.rows[0].attempts, 0);
+  assert.equal(job.rows[0].locked_at, null);
+  const photo = await pool.query(`SELECT status FROM photos WHERE id = $1`, [photoId]);
+  assert.equal(photo.rows[0].status, "processing");
+});
+
+serial("租约未满 5 次时回收回 pending，只在日志写 interrupted", async () => {
+  await reset();
+  await insertPhoto({ id: photoId, errorMessage: "vision_unavailable" });
+  const lockedAt = new Date(now.getTime() - 600_000);
+  await insertJob({
+    id: jobId,
+    photoId,
+    status: "running",
+    attempts: 2,
+    lastError: "vision_unavailable",
+    lockedAt,
+  });
+  const { deps, logs } = harness();
+  await runOnce(deps, now, 0);
+  const job = await pool.query(`SELECT status, attempts, last_error FROM jobs WHERE id = $1`, [jobId]);
+  assert.equal(job.rows[0].status, "pending");
+  assert.equal(Number(job.rows[0].attempts), 2);
+  assert.equal(job.rows[0].last_error, "vision_unavailable");
+  const photo = await pool.query(`SELECT status, error_message FROM photos WHERE id = $1`, [photoId]);
+  assert.equal(photo.rows[0].status, "processing");
+  assert.equal(photo.rows[0].error_message, "vision_unavailable");
+  assert.equal(logs.some((entry) => entry.message === "任务租约回收" && entry.fields.errorCode === "interrupted"), true);
+  const stored = await pool.query(
+    `SELECT
+       (SELECT count(*)::int FROM jobs WHERE last_error = 'interrupted') +
+       (SELECT count(*)::int FROM photos WHERE error_message = 'interrupted') AS n`,
+  );
+  assert.equal(stored.rows[0].n, 0);
 });
 
 serial("租约回收保留 vision_unavailable，日志才出现 interrupted", async () => {

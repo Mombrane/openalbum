@@ -175,6 +175,8 @@ serial("向量字面量拒绝科学计数法、坏维度和 NaN", () => {
   assert.equal(formatVectorLiteral([1e-7], 1), "[0.0000001]");
   assert.throws(() => formatVectorLiteral([1], 2), (error: unknown) => (error as { name?: string }).name === "DimensionMismatch");
   assert.throws(() => formatVectorLiteral([Number.NaN], 1), (error: unknown) => (error as { name?: string }).name === "InvalidEmbedding");
+  assert.throws(() => formatVectorLiteral([1e21], 1), (error: unknown) => (error as { name?: string }).name === "InvalidEmbedding");
+  assert.throws(() => formatVectorLiteral([-1e21], 1), (error: unknown) => (error as { name?: string }).name === "InvalidEmbedding");
 });
 
 serial("嵌入提交写入 1536 维并在文本变化时回滚", async () => {

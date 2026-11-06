@@ -14,7 +14,8 @@ export function pipelineFailureMessage(code: PipelineErrorCode): string {
     case "embed_rejected":
       return "嵌入调用失败";
     case "dimension_mismatch":
-    case "invalid_embedding":
       return "维度不一致";
+    case "invalid_embedding":
+      return "嵌入数值无效";
   }
 }

@@ -71,3 +71,25 @@ test("GetObject 与 PutObject 带 60 秒 abort，缺失对象返回空", async (
   assert.deepEqual(sent.map((item) => item.name), ["GetObjectCommand", "GetObjectCommand", "PutObjectCommand"]);
   assert.equal(sent.every((item) => item.signal), true);
 });
+
+test("getObject 在读响应体时仍受截止约束", { timeout: 2000 }, async () => {
+  let bodyReadStarted = false;
+  const client: S3CommandClient = {
+    async send() {
+      return {
+        Body: {
+          transformToByteArray() {
+            bodyReadStarted = true;
+            return new Promise(() => {});
+          },
+        },
+      };
+    },
+  };
+  const storage = createS3ObjectStorage(config, client, async () => "https://example.invalid/signed", 50);
+  await assert.rejects(
+    () => storage.getObject({ key: "owners/u/photos/p/original" }),
+    (error: unknown) => (error as { name?: string }).name === "AbortError",
+  );
+  assert.equal(bodyReadStarted, true);
+});

@@ -6,6 +6,9 @@ export function formatVectorLiteral(values: number[], dimensions: number): strin
     if (typeof value !== "number" || !Number.isFinite(value)) {
       throw Object.assign(new Error("invalid_embedding"), { name: "InvalidEmbedding" });
     }
+    if (Math.abs(value) >= 1e21) {
+      throw Object.assign(new Error("invalid_embedding"), { name: "InvalidEmbedding" });
+    }
     return formatDecimal(value);
   });
   return `[${parts.join(",")}]`;

@@ -22,6 +22,10 @@ export type S3CommandClient = {
 
 const STORAGE_TIMEOUT_MS = 60_000;
 
+function abortError(): Error {
+  return Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
+}
+
 async function sendWithStorageTimeout(
   client: S3CommandClient,
   command: { constructor: { name: string }; input: Record<string, unknown> },
@@ -35,11 +39,49 @@ async function sendWithStorageTimeout(
   }
 }
 
-async function bytesOf(body: unknown): Promise<Buffer> {
-  if (Buffer.isBuffer(body)) return Buffer.from(body);
-  if (body instanceof Uint8Array) return Buffer.from(body);
+async function readWithAbortSignal<T>(promise: Promise<T>, signal: AbortSignal, body?: unknown): Promise<T> {
+  if (signal.aborted) {
+    destroyBody(body);
+    throw abortError();
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      destroyBody(body);
+      reject(abortError());
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+function destroyBody(body: unknown): void {
+  if (body && typeof body === "object" && "destroy" in body && typeof (body as { destroy?: unknown }).destroy === "function") {
+    (body as { destroy: () => void }).destroy();
+  }
+}
+
+async function bytesOf(body: unknown, signal?: AbortSignal): Promise<Buffer> {
+  if (Buffer.isBuffer(body)) {
+    if (signal) await readWithAbortSignal(Promise.resolve(body), signal);
+    return Buffer.from(body);
+  }
+  if (body instanceof Uint8Array) {
+    if (signal) await readWithAbortSignal(Promise.resolve(body), signal);
+    return Buffer.from(body);
+  }
   if (body && typeof body === "object" && "transformToByteArray" in body && typeof (body as { transformToByteArray?: unknown }).transformToByteArray === "function") {
-    const array = await (body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray();
+    const stream = body as { transformToByteArray: (options?: { abortSignal?: AbortSignal }) => Promise<Uint8Array> };
+    const read = stream.transformToByteArray(signal ? { abortSignal: signal } : undefined);
+    const array = signal ? await readWithAbortSignal(read, signal, body) : await read;
     return Buffer.from(array);
   }
   throw Object.assign(new Error("hidden"), { name: "StorageError" });
@@ -55,6 +97,7 @@ export function createS3ObjectStorage(
   }) as unknown as S3CommandClient,
   presign: (command: unknown, options: { expiresIn: number }) => Promise<string> = (command, options) =>
     getSignedUrl(client as never, command as never, options),
+  getTimeoutMs = STORAGE_TIMEOUT_MS,
 ): ObjectStorage {
   const bucket = config.bucket;
   return {
@@ -114,13 +157,21 @@ export function createS3ObjectStorage(
       }
     },
     async getObject(input) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), getTimeoutMs);
       try {
-        const result = await sendWithStorageTimeout(client, new GetObjectCommand({ Bucket: bucket, Key: input.key }) as never);
-        const body = await bytesOf(result.Body);
-        return { body, byteSize: body.length };
-      } catch (error) {
-        if (named(error, "NotFound") || named(error, "NoSuchKey")) return null;
-        throw error;
+        try {
+          const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: input.key }) as never, {
+            abortSignal: controller.signal,
+          });
+          const body = await bytesOf(result.Body, controller.signal);
+          return { body, byteSize: body.length };
+        } catch (error) {
+          if (named(error, "NotFound") || named(error, "NoSuchKey")) return null;
+          throw error;
+        }
+      } finally {
+        clearTimeout(timer);
       }
     },
     async putObject(input) {
