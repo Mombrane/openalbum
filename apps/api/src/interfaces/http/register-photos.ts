@@ -214,8 +214,6 @@ export function registerPhotoRoutes(
     return sendLibraryResult(reply, result);
   });
 
-  app.get("/photos/search", async (_request, reply) => reply.code(404).send());
-
   app.get("/photos", { schema: { querystring: photosQuerySchema } }, async (request, reply) => {
     const principal = await requirePrincipal(identity, authorizationHeader(request.headers.authorization));
     if (!isPrincipal(principal)) return sendAuthError(reply, principal);

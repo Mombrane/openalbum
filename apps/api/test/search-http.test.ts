@@ -114,7 +114,8 @@ serial("未授权时不返回正文错误，授权后才校验正文和查询字
   assert.equal(empty.statusCode, 400);
   assert.deepEqual(empty.json(), { error: { code: "empty_query", message: "查询为空" } });
   const get = await app.inject({ method: "GET", url: "/photos/search", headers: auth(token) });
-  assert.equal(get.statusCode, 404);
+  assert.equal(get.statusCode, 400);
+  assert.deepEqual(get.json(), { error: { code: "validation_error", message: "标识不合法" } });
 });
 
 serial("未注入嵌入时关键词仍可返回空页，语义为 503", async () => {
