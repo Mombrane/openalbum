@@ -136,6 +136,14 @@ export function createUploadSessionRepository(pool: pg.Pool): UploadSessionRepos
           }
           throw error;
         }
+        await client.query(
+          `INSERT INTO jobs (
+             id, type, photo_id, payload, status, attempts, last_error, run_after, locked_at, created_at, updated_at
+           ) VALUES (
+             $1, 'process_photo', $2, '{"step":"exif"}'::jsonb, 'pending', 0, NULL, $3, NULL, $3, $3
+           )`,
+          [input.jobId, input.photoId, input.now],
+        );
         const updated = await client.query(
           `UPDATE upload_sessions
            SET status = 'completed', updated_at = $2

@@ -22,11 +22,26 @@ export type ObjectStorage = {
   presignGet(input: { key: string; expiresInSeconds: number; now: Date }): Promise<{ url: string; expiresAt: Date }>;
 };
 
+export type PhotoMutation = {
+  update(patch: MetadataPatch, now: Date): Promise<Photo | null>;
+  activeJobs(): Promise<ActiveJob[]>;
+  insertReembed(job: { id: string; runAfter: Date; now: Date }): Promise<"inserted" | "conflict">;
+  insertProcessPhoto(job: { id: string; runAfter: Date; now: Date }): Promise<"inserted" | "conflict">;
+  deletePendingReembed(): Promise<void>;
+  resetForRetry(now: Date): Promise<Photo | null>;
+};
+
 export type PhotoRepository = {
   findById(id: string): Promise<Photo | null>;
   listOwned(input: { ownerId: string; limit: number; cursor: { createdAt: Date; id: string } | null }): Promise<Photo[]>;
   updateOwned(id: string, ownerId: string, patch: MetadataPatch, updatedAt: Date): Promise<Photo | null>;
   deleteOwned(id: string, ownerId: string): Promise<{ objectKey: string; thumbKey: string | null } | null>;
+  ensureProcessPhoto(input: { photoId: string; jobId: string; now: Date }): Promise<"inserted" | "skipped">;
+  transactOwned(
+    photoId: string,
+    ownerId: string,
+    mutate: (photo: Photo | null, tx: PhotoMutation) => Promise<void>,
+  ): Promise<void>;
 };
 
 export type NewUploadSession = {
@@ -60,6 +75,7 @@ export type InsertCompletedPhoto = {
   sourceUserId: string;
   sourceKeyId: string | null;
   now: Date;
+  jobId: string;
 };
 
 export type UploadSessionRepository = {
