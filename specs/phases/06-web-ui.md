@@ -1,7 +1,8 @@
 # Phase 6 — 网页
 
 **状态：** planned  
-**依赖：** Phase 1；各页面依赖其背后的 API 阶段（见验收）
+**依赖：** Phase 1；各页面依赖其背后的 API 阶段（见验收）  
+**设计：** [`docs/superpowers/specs/2026-11-06-openalbum-phase6-web-ui-design.md`](../../docs/superpowers/specs/2026-11-06-openalbum-phase6-web-ui-design.md)
 
 ## 目标
 
@@ -15,7 +16,7 @@
 - 创建与管理共享册、口令与成员角色；凭链接和口令进入
 - 创建与吊销 API Key；明文只在创建成功时显示一次
 - 加载、空列表、错误与未登录状态
-- 与设计稿第 9 节 MVP 验收对应的一条端到端主路径（自动化或写明的手工脚本，二选一并记录结果）
+- 与设计稿第 9 节 MVP 验收对应的一条端到端主路径（仅手工脚本，不引入 Playwright 或浏览器测试框架，并记录结果）
 
 ## 范围外
 
