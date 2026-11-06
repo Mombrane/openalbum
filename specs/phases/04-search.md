@@ -1,7 +1,8 @@
 # Phase 4 — 检索
 
-**状态：** planned  
+**状态：** planned
 **依赖：** Phase 3
+**设计：** [`docs/superpowers/specs/2026-11-06-openalbum-phase4-search-design.md`](../../docs/superpowers/specs/2026-11-06-openalbum-phase4-search-design.md)
 
 ## 目标
 
@@ -13,8 +14,8 @@
 - 语义检索：查询文本先经嵌入网关变成向量，再在 `photo_embeddings` 上召回
 - 只返回调用者有权看到的个人库照片
 - 结果带缩略图访问信息与已有元数据
-- 数据量起来之后的 IVFFlat / HNSW 索引：本阶段可以先顺序扫描或小数据索引，但要在本文件记下切换条件
-- 设计稿中的 `POST /photos/search` 语义；最终路径在本阶段定稿
+- 检索路径已定稿为 `POST /photos/search`
+- 本阶段只做顺序扫描，不建小数据 ANN 索引，也不建 IVFFlat / HNSW。切换条件见设计第 7 节。本阶段不建索引
 
 ## 范围外
 
