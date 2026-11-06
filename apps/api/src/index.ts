@@ -1,5 +1,7 @@
 import { buildApp } from "./app.js";
+import type { EmbedGateway } from "./domain/library/ports.js";
 import { loadAuthConfig } from "./gateways/auth/config.js";
+import { loadApiEmbedConfig } from "./gateways/embed/config.js";
 import { createS3ObjectStorage } from "./gateways/storage/s3-object-storage.js";
 import { loadStorageConfig, productionStoragePlaceholderMessage } from "./gateways/storage/config.js";
 
@@ -28,11 +30,32 @@ if (!Number.isInteger(port) || port <= 0) {
 }
 
 const storage = createS3ObjectStorage(storageConfig);
+
+const embedLoaded = loadApiEmbedConfig(process.env);
+if (!embedLoaded.ok) {
+  console.error(embedLoaded.message);
+  process.exit(embedLoaded.exitCode);
+}
+
+let embed: EmbedGateway | undefined;
+let embedModel: string | undefined;
+if (embedLoaded.config.kind === "disabled") {
+  console.error("嵌入配置仍是占位符，语义检索不可用");
+} else {
+  embed = embedLoaded.config.gateway;
+  embedModel = embedLoaded.config.model;
+}
+
 const app = await buildApp({
   config,
   storage,
   signedUrlTtlSeconds: storageConfig.signedUrlTtlSeconds,
+  embed,
+  embedModel,
 });
+
+if (embedLoaded.config.kind === "fake") app.log.info("嵌入网关使用假实现");
+if (embedLoaded.config.kind === "http") app.log.info("嵌入网关使用 HTTP");
 
 try {
   await app.listen({ port, host });

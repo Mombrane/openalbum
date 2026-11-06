@@ -17,6 +17,15 @@ export function registerErrorHandler(app: FastifyInstance): void {
     if (routeUrl === PART_UPLOAD_ROUTE && code === "FST_ERR_CTP_INVALID_MEDIA_TYPE") {
       return reply.code(400).send({ error: { code: "validation_error", message: "分片不合法" } });
     }
+    if (routeUrl === "/photos/search") {
+      const statusCode =
+        typeof error === "object" && error !== null && "statusCode" in error
+          ? Number((error as { statusCode?: unknown }).statusCode)
+          : 0;
+      if (statusCode === 400 || statusCode === 415 || (statusCode === 413 && code === "FST_ERR_CTP_BODY_TOO_LARGE")) {
+        return reply.code(400).send({ error: { code: "validation_error", message: "请求不合法" } });
+      }
+    }
     request.log.error({ url: request.url.split("?")[0] }, "请求失败");
     return reply.code(500).send({ error: { code: "internal_error", message: "服务器错误" } });
   });

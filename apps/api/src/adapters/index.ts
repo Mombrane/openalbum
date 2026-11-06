@@ -32,3 +32,6 @@ export type { PhotoResponse } from "./library/photo-response.js";
 export { uploadPart } from "./library/upload-part.js";
 export { runOnce } from "./pipeline/run-once.js";
 export { runWorkerLoop } from "./pipeline/worker-loop.js";
+export { searchPhotos } from "./search/search-photos.js";
+export type { SearchResponseBody } from "./search/search-photos.js";
+export type { SearchDeps } from "./search/deps.js";

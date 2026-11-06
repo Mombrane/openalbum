@@ -48,3 +48,24 @@ test("个人库 domain 与 adapters 源码边界", async () => {
   assert.equal(boundaryScript.includes('"sharp"'), true);
   assert.equal(boundaryScript.includes('"exifr"'), true);
 });
+
+test("检索领域不引用照片库，适配层不跨到 DAO 或网关", async () => {
+  const searchDomain = await readAllTypeScriptSources(path.join(apiRoot, "src/domain/search"));
+  const searchAdapters = await readAllTypeScriptSources(path.join(apiRoot, "src/adapters/search"));
+  const libraryAdapters = await readAllTypeScriptSources(path.join(apiRoot, "src/adapters/library"));
+  for (const marker of ["domain/library", "domain/identity", "domain/album", "/dao", "/gateways", "fastify", "undici"]) {
+    assert.equal(searchDomain.includes(marker), false, marker);
+  }
+  assert.equal(searchDomain.includes('from "pg"'), false);
+  assert.equal(searchDomain.includes("node:http"), false);
+  assert.equal(searchDomain.includes("node:https"), false);
+  assert.equal(/\/dao/.test(searchAdapters), false);
+  assert.equal(/\/gateways/.test(searchAdapters), false);
+  assert.equal(searchAdapters.includes("embeddingInput"), false);
+  assert.equal(libraryAdapters.includes("adapters/search"), false);
+  const logger = await readFile(path.join(apiRoot, "src/interfaces/http/auth-logger.ts"), "utf8");
+  for (const path of ["req.body", "embedding", "originalUrl", "thumbUrl"]) {
+    assert.equal(logger.includes(`"${path}"`), true, path);
+  }
+  assert.equal(logger.includes("photos[*].score"), false);
+});
