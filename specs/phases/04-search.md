@@ -1,7 +1,8 @@
 # Phase 4 — 检索
 
-**状态：** planned  
+**状态：** planned
 **依赖：** Phase 3
+**设计：** [`docs/superpowers/specs/2026-11-06-openalbum-phase4-search-design.md`](../../docs/superpowers/specs/2026-11-06-openalbum-phase4-search-design.md)
 
 ## 目标
 
