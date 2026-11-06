@@ -29,3 +29,4 @@ export { listPhotos } from "./library/list-photos.js";
 export { patchPhoto } from "./library/patch-photo.js";
 export type { PhotoResponse } from "./library/photo-response.js";
 export { uploadPart } from "./library/upload-part.js";
+export { runOnce } from "./pipeline/run-once.js";
