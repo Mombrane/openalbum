@@ -49,3 +49,25 @@ test("S3 适配按端口翻译命令，不把 SDK 异常 message 当作成功文
   assert.equal(presigned[0], "900");
   assert.deepEqual(sent.slice(0, 3), ["CreateMultipartUploadCommand", "UploadPartCommand", "CompleteMultipartUploadCommand"]);
 });
+
+test("GetObject 与 PutObject 带 60 秒 abort，缺失对象返回空", async () => {
+  const sent: Array<{ name: string; signal: boolean }> = [];
+  const client: S3CommandClient = {
+    async send(command, options) {
+      sent.push({ name: command.constructor.name, signal: options?.abortSignal instanceof AbortSignal });
+      if (command.constructor.name === "GetObjectCommand" && command.input.Key === "missing") {
+        throw Object.assign(new Error("hidden SECRET"), { name: "NoSuchKey" });
+      }
+      if (command.constructor.name === "GetObjectCommand") return { Body: Buffer.from("bytes") };
+      return {};
+    },
+  };
+  const storage = createS3ObjectStorage(config, client, async () => "https://example.invalid/signed");
+  const found = await storage.getObject({ key: "owners/u/photos/p/original" });
+  assert.equal(found?.body.toString(), "bytes");
+  assert.equal(found?.byteSize, 5);
+  assert.equal(await storage.getObject({ key: "missing" }), null);
+  await storage.putObject({ key: "owners/u/photos/p/thumb", contentType: "image/jpeg", body: Buffer.from("jpeg") });
+  assert.deepEqual(sent.map((item) => item.name), ["GetObjectCommand", "GetObjectCommand", "PutObjectCommand"]);
+  assert.equal(sent.every((item) => item.signal), true);
+});

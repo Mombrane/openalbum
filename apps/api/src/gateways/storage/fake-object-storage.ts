@@ -42,6 +42,10 @@ export type FakeObjectStorage = ObjectStorage & {
   failHeadObject: boolean;
   completeAsNoSuchUpload: boolean;
   createCalls: number;
+  putObjectCalls: number;
+  getObjectCalls: number;
+  failGetObject: boolean;
+  failPutObject: boolean;
   blockComplete(gate: StorageGate | null): void;
   completedBytes(key: string): Buffer | null;
 };
@@ -63,6 +67,10 @@ export function createFakeObjectStorage(): FakeObjectStorage {
     failHeadObject: false,
     completeAsNoSuchUpload: false,
     createCalls: 0,
+    putObjectCalls: 0,
+    getObjectCalls: 0,
+    failGetObject: false,
+    failPutObject: false,
 
     blockComplete(gate: StorageGate | null) {
       completeGate = gate;
@@ -148,6 +156,20 @@ export function createFakeObjectStorage(): FakeObjectStorage {
         throw Object.assign(new Error("hidden"), { name: "AccessDenied" });
       }
       completed.delete(input.key);
+    },
+
+    async getObject(input) {
+      storage.getObjectCalls += 1;
+      if (storage.failGetObject) throw Object.assign(new Error("hidden"), { name: "InternalError" });
+      const body = completed.get(input.key);
+      if (!body) return null;
+      return { body: Buffer.from(body), byteSize: body.length };
+    },
+
+    async putObject(input) {
+      storage.putObjectCalls += 1;
+      if (storage.failPutObject) throw Object.assign(new Error("hidden"), { name: "InternalError" });
+      completed.set(input.key, Buffer.from(input.body));
     },
 
     async presignGet(input) {

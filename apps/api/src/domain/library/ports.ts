@@ -19,6 +19,8 @@ export type ObjectStorage = {
   abortMultipartUpload(input: { key: string; uploadId: string }): Promise<void>;
   headObject(input: { key: string }): Promise<{ byteSize: number } | null>;
   deleteObject(input: { key: string }): Promise<void>;
+  getObject(input: { key: string }): Promise<{ body: Buffer; byteSize: number } | null>;
+  putObject(input: { key: string; contentType: string; body: Buffer }): Promise<void>;
   presignGet(input: { key: string; expiresInSeconds: number; now: Date }): Promise<{ url: string; expiresAt: Date }>;
 };
 
