@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Readable, Writable } from "node:stream";
 import test from "node:test";
 import type { StorageConfig } from "../src/gateways/storage/config.js";
 import { createS3ObjectStorage, type S3CommandClient } from "../src/gateways/storage/s3-object-storage.js";
@@ -73,16 +74,42 @@ test("GetObject 与 PutObject 带 60 秒 abort，缺失对象返回空", async (
 });
 
 test("getObject 在读响应体时仍受截止约束", { timeout: 2000 }, async () => {
+  const source = new Readable({ read() {} });
+  source.push(Buffer.from("partial"));
+  const destroyed: unknown[] = [];
+  const destroy = source.destroy.bind(source);
+  source.destroy = ((error?: Error) => {
+    destroyed.push(error);
+    return destroy(error);
+  }) as typeof source.destroy;
   let bodyReadStarted = false;
+  const read = new Promise<Uint8Array>((resolve, reject) => {
+    const collector = new Writable({
+      write(_chunk, _encoding, callback) {
+        callback();
+      },
+    });
+    source.pipe(collector);
+    source.on("error", (error) => {
+      collector.end();
+      reject(error);
+    });
+    collector.on("error", reject);
+    collector.on("finish", () => resolve(new Uint8Array()));
+  });
+  const collectorSettled = Promise.race([
+    read.then(() => "settled", () => "settled"),
+    new Promise((resolve) => setTimeout(() => resolve("hung"), 200)),
+  ]);
   const client: S3CommandClient = {
     async send() {
       return {
-        Body: {
+        Body: Object.assign(source, {
           transformToByteArray() {
             bodyReadStarted = true;
-            return new Promise(() => {});
+            return read;
           },
-        },
+        }),
       };
     },
   };
@@ -92,4 +119,8 @@ test("getObject 在读响应体时仍受截止约束", { timeout: 2000 }, async 
     (error: unknown) => (error as { name?: string }).name === "AbortError",
   );
   assert.equal(bodyReadStarted, true);
+  assert.equal(destroyed.length, 1);
+  assert.equal(destroyed[0] instanceof Error, true);
+  assert.equal((destroyed[0] as { name?: string }).name, "AbortError");
+  assert.equal(await collectorSettled, "settled");
 });

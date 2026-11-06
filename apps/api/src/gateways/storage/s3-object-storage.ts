@@ -41,13 +41,16 @@ async function sendWithStorageTimeout(
 
 async function readWithAbortSignal<T>(promise: Promise<T>, signal: AbortSignal, body?: unknown): Promise<T> {
   if (signal.aborted) {
-    destroyBody(body);
-    throw abortError();
+    const error = abortError();
+    destroyBody(body, error);
+    promise.catch(() => undefined);
+    throw error;
   }
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => {
-      destroyBody(body);
-      reject(abortError());
+      const error = abortError();
+      destroyBody(body, error);
+      reject(error);
     };
     signal.addEventListener("abort", onAbort, { once: true });
     promise.then(
@@ -63,9 +66,9 @@ async function readWithAbortSignal<T>(promise: Promise<T>, signal: AbortSignal, 
   });
 }
 
-function destroyBody(body: unknown): void {
+function destroyBody(body: unknown, error: Error): void {
   if (body && typeof body === "object" && "destroy" in body && typeof (body as { destroy?: unknown }).destroy === "function") {
-    (body as { destroy: () => void }).destroy();
+    (body as { destroy: (error: Error) => void }).destroy(error);
   }
 }
 
