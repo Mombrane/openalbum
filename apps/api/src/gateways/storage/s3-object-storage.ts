@@ -22,7 +22,10 @@ export type S3CommandClient = {
 
 const STORAGE_TIMEOUT_MS = 60_000;
 
-async function sendCommand(client: S3CommandClient, command: { constructor: { name: string }; input: Record<string, unknown> }) {
+async function sendWithStorageTimeout(
+  client: S3CommandClient,
+  command: { constructor: { name: string }; input: Record<string, unknown> },
+) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), STORAGE_TIMEOUT_MS);
   try {
@@ -56,7 +59,7 @@ export function createS3ObjectStorage(
   const bucket = config.bucket;
   return {
     async createMultipartUpload(input) {
-      const result = await sendCommand(client, new CreateMultipartUploadCommand({
+      const result = await client.send(new CreateMultipartUploadCommand({
         Bucket: bucket,
         Key: input.key,
         ContentType: input.contentType,
@@ -67,7 +70,7 @@ export function createS3ObjectStorage(
       return { uploadId: result.UploadId };
     },
     async uploadPart(input) {
-      const result = await sendCommand(client, new UploadPartCommand({
+      const result = await client.send(new UploadPartCommand({
         Bucket: bucket,
         Key: input.key,
         UploadId: input.uploadId,
@@ -78,7 +81,7 @@ export function createS3ObjectStorage(
       return { etag: result.ETag, byteSize: input.body.length };
     },
     async completeMultipartUpload(input) {
-      await sendCommand(client, new CompleteMultipartUploadCommand({
+      await client.send(new CompleteMultipartUploadCommand({
         Bucket: bucket,
         Key: input.key,
         UploadId: input.uploadId,
@@ -89,14 +92,14 @@ export function createS3ObjectStorage(
     },
     async abortMultipartUpload(input) {
       try {
-        await sendCommand(client, new AbortMultipartUploadCommand({ Bucket: bucket, Key: input.key, UploadId: input.uploadId }) as never);
+        await client.send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: input.key, UploadId: input.uploadId }) as never);
       } catch (error) {
         if (!named(error, "NoSuchUpload")) throw error;
       }
     },
     async headObject(input) {
       try {
-        const result = await sendCommand(client, new HeadObjectCommand({ Bucket: bucket, Key: input.key }) as never);
+        const result = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: input.key }) as never);
         return { byteSize: Number(result.ContentLength ?? 0) };
       } catch (error) {
         if (named(error, "NotFound")) return null;
@@ -105,14 +108,14 @@ export function createS3ObjectStorage(
     },
     async deleteObject(input) {
       try {
-        await sendCommand(client, new DeleteObjectCommand({ Bucket: bucket, Key: input.key }) as never);
+        await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: input.key }) as never);
       } catch (error) {
         if (!named(error, "NotFound")) throw error;
       }
     },
     async getObject(input) {
       try {
-        const result = await sendCommand(client, new GetObjectCommand({ Bucket: bucket, Key: input.key }) as never);
+        const result = await sendWithStorageTimeout(client, new GetObjectCommand({ Bucket: bucket, Key: input.key }) as never);
         const body = await bytesOf(result.Body);
         return { body, byteSize: body.length };
       } catch (error) {
@@ -121,7 +124,7 @@ export function createS3ObjectStorage(
       }
     },
     async putObject(input) {
-      await sendCommand(client, new PutObjectCommand({
+      await sendWithStorageTimeout(client, new PutObjectCommand({
         Bucket: bucket,
         Key: input.key,
         ContentType: input.contentType,
