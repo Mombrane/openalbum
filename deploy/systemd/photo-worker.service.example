@@ -1,0 +1,18 @@
+[Unit]
+Description=AI Native 共享相册处理流水线
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/photo-album/apps/api
+EnvironmentFile=/etc/photo-album/api.env
+ExecStart=/usr/bin/node dist/worker.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,7 +1,7 @@
 import { buildApp } from "./app.js";
 import { loadAuthConfig } from "./gateways/auth/config.js";
 import { createS3ObjectStorage } from "./gateways/storage/s3-object-storage.js";
-import { loadStorageConfig } from "./gateways/storage/config.js";
+import { loadStorageConfig, productionStoragePlaceholderMessage } from "./gateways/storage/config.js";
 
 const config = loadAuthConfig(process.env);
 
@@ -10,6 +10,13 @@ try {
   storageConfig = loadStorageConfig(process.env);
 } catch (error) {
   console.error(error instanceof Error ? error.message : "对象存储配置无效");
+  process.exit(1);
+}
+
+/** production S3 占位符退出文案：对象存储配置仍是占位符 */
+const storagePlaceholder = productionStoragePlaceholderMessage(process.env);
+if (storagePlaceholder) {
+  console.error(storagePlaceholder);
   process.exit(1);
 }
 
