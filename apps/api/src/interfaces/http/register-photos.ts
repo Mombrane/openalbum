@@ -1,4 +1,6 @@
-import type { FastifyInstance } from "fastify";
+import { Readable } from "node:stream";
+import { buffer as readStreamToBuffer } from "node:stream/consumers";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   abortUpload,
   completeUpload,
@@ -10,9 +12,11 @@ import {
   patchPhoto,
   requirePrincipal,
   retryPhoto,
+  searchPhotos,
   uploadPart,
   type IdentityDeps,
   type LibraryDeps,
+  type SearchDeps,
 } from "../../adapters/index.js";
 import type { LibraryActor } from "../../domain/library/model.js";
 import type { Principal } from "../../domain/identity/model.js";
@@ -22,7 +26,10 @@ import { normalizeMetadataPatch } from "../../domain/library/metadata-patch.js";
 import { LIBRARY_MESSAGES } from "../../adapters/library/messages.js";
 import { sendAuthError, sendInvalid } from "./send-auth-error.js";
 import { sendLibraryResult } from "./send-library-error.js";
+import { sendSearchResult } from "./send-search-result.js";
 import { parseUuid } from "./validation.js";
+
+const principals = new WeakMap<FastifyRequest, Principal>();
 
 const uploadBodySchema = {
   type: "object",
@@ -128,12 +135,43 @@ export function registerPhotoRoutes(
   identity: IdentityDeps,
   library: LibraryDeps,
   clock: Clock,
+  search: SearchDeps,
 ): void {
   app.addContentTypeParser(
     "application/octet-stream",
     { parseAs: "buffer", bodyLimit: PART_BODY_LIMIT },
     (_request, body, done) => {
       done(null, body);
+    },
+  );
+
+  app.post(
+    "/photos/search",
+    {
+      onRequest: async (request, reply) => {
+        const principal = await requirePrincipal(identity, authorizationHeader(request.headers.authorization));
+        if (!isPrincipal(principal)) return sendAuthError(reply, principal);
+        principals.set(request, principal);
+      },
+      preParsing: async (_request, _reply, payload) => {
+        const bodyCopy = await readStreamToBuffer(payload);
+        return Readable.from([bodyCopy]);
+      },
+    },
+    async (request, reply) => {
+      if (reply.sent) return;
+      const principal = principals.get(request);
+      if (!principal) return reply.code(401).send({ error: { code: "unauthorized", message: "未授权" } });
+      const query = request.query;
+      if (query && typeof query === "object" && Object.keys(query as object).length > 0) {
+        return reply.code(400).send({ error: { code: "validation_error", message: "请求不合法" } });
+      }
+      const parsed = request.body;
+      if (parsed === null || parsed === undefined || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return reply.code(400).send({ error: { code: "validation_error", message: "请求不合法" } });
+      }
+      const result = await searchPhotos(search, toLibraryActor(principal), parsed as Record<string, unknown>, clock.now());
+      return sendSearchResult(reply, result);
     },
   );
 
@@ -175,6 +213,8 @@ export function registerPhotoRoutes(
     const result = await abortUpload(library, toLibraryActor(principal), sessionId, clock.now());
     return sendLibraryResult(reply, result);
   });
+
+  app.get("/photos/search", async (_request, reply) => reply.code(404).send());
 
   app.get("/photos", { schema: { querystring: photosQuerySchema } }, async (request, reply) => {
     const principal = await requirePrincipal(identity, authorizationHeader(request.headers.authorization));
