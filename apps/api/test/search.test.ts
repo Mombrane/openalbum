@@ -122,8 +122,19 @@ serial("字面量通配符与不分词", async () => {
   const other = "88888888-8888-4888-8888-888888888882";
   const phrase = "88888888-8888-4888-8888-888888888883";
   const split = "88888888-8888-4888-8888-888888888884";
+  const underscoreDecoy = "88888888-8888-4888-8888-888888888885";
+  const backslashLiteral = "88888888-8888-4888-8888-888888888886";
+  const backslashDecoy = "88888888-8888-4888-8888-888888888887";
   await insertSearchPhoto(pool, { id: literal, ownerId: owner.userId, description: "100%_ok", createdAt: START });
+  await insertSearchPhoto(pool, { id: underscoreDecoy, ownerId: owner.userId, description: "100%Xok", createdAt: START });
   await insertSearchPhoto(pool, { id: other, ownerId: owner.userId, description: "plain", createdAt: START });
+  await insertSearchPhoto(pool, {
+    id: backslashLiteral,
+    ownerId: owner.userId,
+    description: "a\\b",
+    createdAt: START,
+  });
+  await insertSearchPhoto(pool, { id: backslashDecoy, ownerId: owner.userId, description: "ab", createdAt: START });
   await insertSearchPhoto(pool, { id: phrase, ownerId: owner.userId, description: "红 船", createdAt: START });
   await insertSearchPhoto(pool, { id: split, ownerId: owner.userId, description: "红", tags: ["船"], createdAt: START });
   const exact = await app.inject({
@@ -133,13 +144,20 @@ serial("字面量通配符与不分词", async () => {
     payload: { mode: "keyword", q: "100%_ok" },
   });
   assert.deepEqual(exact.json().photos.map((photo: { id: string }) => photo.id), [literal]);
+  const backslash = await app.inject({
+    method: "POST",
+    url: "/photos/search",
+    headers: bearer(owner.accessToken),
+    payload: { mode: "keyword", q: "a\\b" },
+  });
+  assert.deepEqual(backslash.json().photos.map((photo: { id: string }) => photo.id), [backslashLiteral]);
   const percent = await app.inject({
     method: "POST",
     url: "/photos/search",
     headers: bearer(owner.accessToken),
     payload: { mode: "keyword", q: "%" },
   });
-  assert.deepEqual(percent.json().photos.map((photo: { id: string }) => photo.id), [literal]);
+  assert.deepEqual(percent.json().photos.map((photo: { id: string }) => photo.id), [underscoreDecoy, literal]);
   const spaced = await app.inject({
     method: "POST",
     url: "/photos/search",
@@ -272,10 +290,13 @@ serial("JWT 与 API Key 顺序一致，游标不会读出别人的照片", async
   const otherKey = await createApiKey(app, other.accessToken);
   const ownId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
   const otherId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2";
-  const ownCreated = new Date("2030-03-02T00:00:00.000Z");
+  const ownOld = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3";
+  const ownNewest = new Date("2030-03-04T00:00:00.000Z");
   const otherCreated = new Date("2030-03-03T00:00:00.000Z");
-  await insertSearchPhoto(pool, { id: ownId, ownerId: owner.userId, description: "Red Boat", createdAt: ownCreated });
+  const ownerOlder = new Date("2030-03-01T00:00:00.000Z");
+  await insertSearchPhoto(pool, { id: ownOld, ownerId: owner.userId, description: "Red Boat", createdAt: ownerOlder });
   await insertSearchPhoto(pool, { id: otherId, ownerId: other.userId, description: "Red Boat", createdAt: otherCreated });
+  await insertSearchPhoto(pool, { id: ownId, ownerId: owner.userId, description: "Red Boat", createdAt: ownNewest });
   const byJwt = await app.inject({
     method: "POST",
     url: "/photos/search",
@@ -288,11 +309,18 @@ serial("JWT 与 API Key 顺序一致，游标不会读出别人的照片", async
     headers: bearer(key),
     payload: { mode: "keyword", q: "red" },
   });
+  const ownerExpected: Array<[string, null]> = [
+    [ownId, null],
+    [ownOld, null],
+  ];
   assert.deepEqual(
     byJwt.json().photos.map((photo: { id: string; score: null }) => [photo.id, photo.score]),
-    byKey.json().photos.map((photo: { id: string; score: null }) => [photo.id, photo.score]),
+    ownerExpected,
   );
-  assert.deepEqual(byJwt.json().photos.map((photo: { id: string }) => photo.id), [ownId]);
+  assert.deepEqual(
+    byKey.json().photos.map((photo: { id: string; score: null }) => [photo.id, photo.score]),
+    ownerExpected,
+  );
   const otherView = await app.inject({
     method: "POST",
     url: "/photos/search",
@@ -311,13 +339,10 @@ serial("JWT 与 API Key 顺序一致，游标不会读出别人的照片", async
     method: "POST",
     url: "/photos/search",
     headers: bearer(owner.accessToken),
-    payload: { mode: "keyword", q: "red", cursor: encodeKeywordCursor(otherCreated, otherId) },
+    payload: { mode: "keyword", q: "red", cursor: encodeKeywordCursor(ownNewest, ownId) },
   });
   assert.equal(stolen.statusCode, 200);
-  assert.equal(
-    stolen.json().photos.some((photo: { id: string }) => photo.id === otherId),
-    false,
-  );
+  assert.deepEqual(stolen.json().photos.map((photo: { id: string }) => photo.id), [ownOld]);
 });
 
 serial("关键词结果带签名 URL，列表元素没有 score", async () => {
