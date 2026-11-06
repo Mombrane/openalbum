@@ -9,6 +9,7 @@ import {
   listPhotos,
   patchPhoto,
   requirePrincipal,
+  retryPhoto,
   uploadPart,
   type IdentityDeps,
   type LibraryDeps,
@@ -208,6 +209,16 @@ export function registerPhotoRoutes(
     const normalized = normalizeMetadataPatch(request.body as Record<string, unknown>);
     if (!normalized.ok) return sendInvalid(reply, normalized.message);
     const result = await patchPhoto(library, toLibraryActor(principal), photoId, normalized.patch, clock.now());
+    return sendLibraryResult(reply, result);
+  });
+
+  app.post("/photos/:id/retry", async (request, reply) => {
+    const principal = await requirePrincipal(identity, authorizationHeader(request.headers.authorization));
+    if (!isPrincipal(principal)) return sendAuthError(reply, principal);
+    if (!isAllowedEmptyJson(request.body)) return sendInvalid(reply, LIBRARY_MESSAGES.invalidBody);
+    const photoId = parseUuid((request.params as { id: string }).id);
+    if (typeof photoId !== "string") return sendInvalid(reply, photoId.message);
+    const result = await retryPhoto(library, toLibraryActor(principal), photoId, clock.now());
     return sendLibraryResult(reply, result);
   });
 

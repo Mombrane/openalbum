@@ -12,8 +12,11 @@ export type PhotoResponse = {
   description: string | null;
   tags: string[];
   status: string;
+  errorCode: string | null;
   originalUrl: string;
   originalUrlExpiresAt: string;
+  thumbUrl: string | null;
+  thumbUrlExpiresAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -24,6 +27,17 @@ export async function toPhotoResponse(deps: LibraryDeps, photo: Photo, now: Date
     expiresInSeconds: deps.signedUrlTtlSeconds,
     now,
   });
+  let thumbUrl: string | null = null;
+  let thumbUrlExpiresAt: string | null = null;
+  if (photo.thumbKey) {
+    const thumbSigned = await deps.storage.presignGet({
+      key: photo.thumbKey,
+      expiresInSeconds: deps.signedUrlTtlSeconds,
+      now,
+    });
+    thumbUrl = thumbSigned.url;
+    thumbUrlExpiresAt = thumbSigned.expiresAt.toISOString();
+  }
   return {
     id: photo.id,
     contentType: photo.contentType,
@@ -35,8 +49,11 @@ export async function toPhotoResponse(deps: LibraryDeps, photo: Photo, now: Date
     description: photo.description,
     tags: photo.tags,
     status: photo.status,
+    errorCode: photo.errorCode,
     originalUrl: signed.url,
     originalUrlExpiresAt: signed.expiresAt.toISOString(),
+    thumbUrl,
+    thumbUrlExpiresAt,
     createdAt: photo.createdAt.toISOString(),
     updatedAt: photo.updatedAt.toISOString(),
   };
