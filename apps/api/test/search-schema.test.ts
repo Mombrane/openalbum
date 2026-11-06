@@ -56,13 +56,13 @@ test("env 示例不新增变量，并写明 API 也读取 EMBED", async () => {
   assert.equal(example.includes("HNSW_"), false);
 });
 
-test("阶段 4 已开工且设计状态未被改掉", async () => {
+test("阶段 4 验收完成且状态为 done", async () => {
   const phase = await readFile(new URL("../../../specs/phases/04-search.md", import.meta.url), "utf8");
-  assert.match(phase, /\*\*状态：\*\* in_progress/);
-  assert.equal((phase.match(/- \[x\]/g) ?? []).length, 0);
-  assert.ok((phase.match(/- \[ \]/g) ?? []).length >= 5);
+  assert.match(phase, /\*\*状态：\*\* done/);
+  const checked = phase.match(/- \[x\]/g) ?? [];
+  assert.ok(checked.length >= 5, "阶段 4 验收项应全部勾选");
   const spec = await readFile(new URL("../../../specs/SPEC.md", import.meta.url), "utf8");
-  assert.match(spec, /\| 4 \|.*\| in_progress \|/);
+  assert.match(spec, /\| 4 \|.*\| done \|/);
   const design = await readFile(
     new URL("../../../docs/superpowers/specs/2026-11-06-openalbum-phase4-search-design.md", import.meta.url),
     "utf8",
