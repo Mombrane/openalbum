@@ -140,17 +140,62 @@ CREATE TABLE IF NOT EXISTS album_photos (
 );
 
 -- 异步流水线任务
--- type 示例：process_photo | reembed
+-- type: process_photo | reembed
 -- status: pending | running | done | failed
+-- payload.step: exif | thumbnail | vision | embed | done
 CREATE TABLE IF NOT EXISTS jobs (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   type         TEXT NOT NULL,
+  photo_id     UUID NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
   payload      JSONB NOT NULL DEFAULT '{}',
   status       TEXT NOT NULL DEFAULT 'pending',
   attempts     INT NOT NULL DEFAULT 0,
   last_error   TEXT,
   run_after    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  locked_at    TIMESTAMPTZ,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT jobs_type CHECK (type IN ('process_photo', 'reembed')),
+  CONSTRAINT jobs_status CHECK (status IN ('pending', 'running', 'done', 'failed')),
+  CONSTRAINT jobs_attempts CHECK (attempts >= 0)
 );
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS photo_id UUID;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'jobs_photo_id_fkey') THEN
+    ALTER TABLE jobs
+      ADD CONSTRAINT jobs_photo_id_fkey
+      FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DELETE FROM jobs WHERE photo_id IS NULL;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'jobs'
+      AND column_name = 'photo_id'
+      AND is_nullable = 'YES'
+  ) THEN
+    ALTER TABLE jobs ALTER COLUMN photo_id SET NOT NULL;
+  END IF;
+END $$;
+
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_type;
+ALTER TABLE jobs ADD CONSTRAINT jobs_type CHECK (type IN ('process_photo', 'reembed'));
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_status;
+ALTER TABLE jobs ADD CONSTRAINT jobs_status CHECK (status IN ('pending', 'running', 'done', 'failed'));
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_attempts;
+ALTER TABLE jobs ADD CONSTRAINT jobs_attempts CHECK (attempts >= 0);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_poll ON jobs(status, run_after);
+CREATE INDEX IF NOT EXISTS idx_jobs_photo ON jobs(photo_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_one_active
+  ON jobs (photo_id, type)
+  WHERE status IN ('pending', 'running');

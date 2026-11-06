@@ -1,6 +1,6 @@
 # Phase 3 — 处理流水线
 
-**状态：** planned  
+**状态：** in_progress
 **依赖：** Phase 2  
 **设计：** [`docs/superpowers/specs/2026-11-06-openalbum-phase3-processing-pipeline-design.md`](../../docs/superpowers/specs/2026-11-06-openalbum-phase3-processing-pipeline-design.md)
 

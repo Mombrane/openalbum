@@ -60,6 +60,8 @@ Phase 1 的 `schema.sql` 在身份段增加 `refresh_tokens`。本地仍然用 `
 
 Phase 2 在 `schema.sql` 的个人库段追加 `upload_sessions` 与 `upload_parts`。签名 GET 的有效期是 `S3_SIGNED_URL_TTL`，默认 `15m`，语法与 `JWT_TTL` 相同，超过 7 天时进程拒绝启动。本阶段不读取 `S3_PUBLIC_BASE_URL`。
 
+Phase 3 将 `jobs` 定为 `process_photo` 与 `reembed`。`photo_id` 外键级联删除照片的任务，并增加 `locked_at`。Worker 读取 `PIPELINE_POLL_MS`（空白时 2000，闭区间 200 到 60000）、`PIPELINE_CONCURRENCY`（空白时 2，闭区间 1 到 8）、`VISION_TIMEOUT_MS`（空白时 60000）与 `EMBED_TIMEOUT_MS`（空白时 30000）。`EMBED_DIMENSIONS` 必须是 `1536`，与 `vector(1536)` 相同。`NODE_ENV=production` 时，视觉、嵌入或对象存储占位符让 worker 以退出码 1 结束；API 进程只在对象存储占位符上以退出码 1 结束，文案是 `对象存储配置仍是占位符`。非 production 的视觉与嵌入占位符使用假网关。本阶段仍不读取 `S3_PUBLIC_BASE_URL`。
+
 ## 密钥清单
 
 - [ ] 数据库口令
