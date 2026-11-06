@@ -1,3 +1,5 @@
+import type { PhotoStatus } from "./pipeline.js";
+
 export type LibraryActor = {
   userId: string;
   credentialKind: "password_session" | "api_key";
@@ -19,9 +21,10 @@ export type Photo = {
   longitude: number | null;
   description: string | null;
   tags: string[];
-  status: string;
+  status: PhotoStatus;
   sourceUserId: string | null;
   sourceKeyId: string | null;
+  errorCode: string | null;
   createdAt: Date;
   updatedAt: Date;
 };

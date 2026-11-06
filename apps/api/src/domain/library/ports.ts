@@ -1,4 +1,12 @@
 import type { LibraryActor, MetadataPatch, Photo, UploadPartRecord, UploadSession, UploadStatus } from "./model.js";
+import type {
+  ExifFill,
+  ExifReading,
+  JobStatus,
+  JobType,
+  PipelineErrorCode,
+  PipelineStep,
+} from "./pipeline.js";
 
 export type ObjectStorage = {
   createMultipartUpload(input: { key: string; contentType: string }): Promise<{ uploadId: string }>;
@@ -80,3 +88,136 @@ export type LibraryLog = {
 };
 
 export type { LibraryActor, UploadStatus };
+
+export type ExifReader = {
+  read(bytes: Buffer): Promise<ExifReading>;
+};
+
+export type ThumbnailEncoder = {
+  encode(bytes: Buffer): Promise<{ bytes: Buffer; contentType: "image/jpeg" }>;
+};
+
+export type VisionGateway = {
+  describe(input: {
+    model: string;
+    contentType: string;
+    bytes: Buffer;
+  }): Promise<
+    | { ok: true; description: string | null; tags: string[] }
+    | { ok: false; kind: "vision_unavailable" | "vision_rejected" }
+  >;
+};
+
+export type EmbedGateway = {
+  embed(input: { model: string; text: string }): Promise<
+    | { ok: true; values: number[] }
+    | { ok: false; kind: "embed_unavailable" | "embed_rejected" }
+  >;
+};
+
+export type ClaimedJob = {
+  id: string;
+  type: JobType;
+  photoId: string;
+  step: PipelineStep;
+  attempts: number;
+  lockedAt: Date;
+};
+
+export type ReclaimedJob = {
+  id: string;
+  type: JobType;
+  photoId: string;
+  attempts: number;
+  lastError: string | null;
+};
+
+export type ActiveJob = { type: JobType; status: "pending" | "running" };
+
+export type JobRecord = {
+  id: string;
+  type: JobType;
+  photoId: string;
+  step: PipelineStep;
+  status: JobStatus;
+  attempts: number;
+  lastError: string | null;
+  runAfter: Date;
+  lockedAt: Date | null;
+};
+
+export type EmbeddingPlan = "write" | "text_changed" | "need_thumbnail";
+
+export type PipelineStore = {
+  reclaimExpired(now: Date): Promise<ReclaimedJob[]>;
+  claim(now: Date, limit: number): Promise<ClaimedJob[]>;
+  readPhoto(photoId: string): Promise<Photo | null>;
+  listForPhoto(photoId: string): Promise<JobRecord[]>;
+  applyExif(input: { jobId: string; lockedAt: Date; photoId: string; fill: ExifFill; now: Date }): Promise<"ok" | "lost">;
+  noteThumbPresent(input: { jobId: string; lockedAt: Date; now: Date }): Promise<"ok" | "lost">;
+  commitThumb(input: {
+    jobId: string;
+    lockedAt: Date;
+    photoId: string;
+    thumbKey: string;
+    now: Date;
+  }): Promise<"ok" | "missing" | "conflict" | "lost">;
+  skipVision(input: { jobId: string; lockedAt: Date; now: Date }): Promise<"ok" | "lost">;
+  applyVision(input: {
+    jobId: string;
+    lockedAt: Date;
+    photoId: string;
+    description: string | null;
+    tags: string[];
+    now: Date;
+  }): Promise<"ok" | "lost">;
+  commitEmbedding(
+    input: {
+      jobId: string;
+      lockedAt: Date;
+      photoId: string;
+      jobType: JobType;
+      values: number[];
+      dimensions: number;
+      model: string;
+      now: Date;
+    },
+    plan: (photo: Photo) => EmbeddingPlan,
+  ): Promise<"written" | "text_changed" | "need_thumbnail" | "missing" | "lost">;
+  rewindToThumbnail(input: { jobId: string; lockedAt: Date; now: Date }): Promise<"ok" | "lost">;
+  retryJob(input: {
+    jobId: string;
+    lockedAt: Date;
+    photoId: string;
+    jobType: JobType;
+    code: PipelineErrorCode;
+    runAfter: Date;
+    now: Date;
+  }): Promise<"ok" | "lost">;
+  failJob(input: {
+    jobId: string;
+    lockedAt: Date;
+    photoId: string;
+    jobType: JobType;
+    code: PipelineErrorCode;
+    now: Date;
+  }): Promise<"ok" | "lost">;
+  releaseRunning(input: { jobId: string; lockedAt: Date; now: Date }): Promise<"ok" | "lost">;
+};
+
+export type PipelineLogFields = {
+  userId?: string;
+  photoId?: string;
+  objectKey?: string;
+  jobId?: string;
+  jobType?: JobType;
+  step?: PipelineStep;
+  attempt?: number;
+  errorCode?: PipelineErrorCode | "interrupted";
+  errorName?: string;
+};
+
+export type PipelineLog = {
+  info(message: string, fields: PipelineLogFields): void;
+  warn(message: string, fields: PipelineLogFields): void;
+};

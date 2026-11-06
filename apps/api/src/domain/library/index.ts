@@ -8,6 +8,46 @@ export { normalizeMetadataPatch } from "./metadata-patch.js";
 export { photoObjectKey } from "./object-key.js";
 export { validatePartsForComplete } from "./parts.js";
 export { isVisiblePhoto } from "./visibility.js";
+export {
+  PIPELINE_LEASE_MS,
+  PIPELINE_MAX_ATTEMPTS,
+  ThumbnailEncodeError,
+  checkEmbedding,
+  embeddingInput,
+  exifFill,
+  failureDisposition,
+  normalizeVisionDescription,
+  normalizeVisionTags,
+  parseJobStep,
+  parsePhotoStatus,
+  semanticChanged,
+  shouldCallVision,
+  thumbObjectKey,
+  visionWrite,
+} from "./pipeline.js";
+export type {
+  ActiveJob,
+  ClaimedJob,
+  EmbedGateway,
+  EmbeddingPlan,
+  ExifReader,
+  JobRecord,
+  PipelineLog,
+  PipelineLogFields,
+  PipelineStore,
+  ReclaimedJob,
+  ThumbnailEncoder,
+  VisionGateway,
+} from "./ports.js";
+export type {
+  ExifFill,
+  ExifReading,
+  JobStatus,
+  JobType,
+  PhotoStatus,
+  PipelineErrorCode,
+  PipelineStep,
+} from "./pipeline.js";
 export type {
   CompletionLock,
   InsertCompletedPhoto,

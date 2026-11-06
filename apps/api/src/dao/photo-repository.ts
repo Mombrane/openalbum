@@ -1,19 +1,20 @@
 import pg from "pg";
 import type { Photo } from "../domain/library/model.js";
+import { parsePhotoStatus } from "../domain/library/pipeline.js";
 import type { PhotoRepository } from "../domain/library/ports.js";
 
-const LIST_SQL = `SELECT id, owner_id, object_key, thumb_key, content_type, byte_size,
-       taken_at, location_text, latitude, longitude, description, tags,
-       status, source_user_id, source_key_id, created_at, updated_at
+const PHOTO_COLUMNS = `id, owner_id, object_key, thumb_key, content_type, byte_size,
+taken_at, location_text, latitude, longitude, description, tags,
+status, source_user_id, source_key_id, error_message, created_at, updated_at`;
+
+const LIST_SQL = `SELECT ${PHOTO_COLUMNS}
 FROM photos
 WHERE owner_id = $1
   AND ($2::timestamptz IS NULL OR (created_at, id) < ($2::timestamptz, $3::uuid))
 ORDER BY created_at DESC, id DESC
 LIMIT $4`;
 
-const FIND_SQL = `SELECT id, owner_id, object_key, thumb_key, content_type, byte_size,
-       taken_at, location_text, latitude, longitude, description, tags,
-       status, source_user_id, source_key_id, created_at, updated_at
+const FIND_SQL = `SELECT ${PHOTO_COLUMNS}
 FROM photos
 WHERE id = $1`;
 
@@ -64,9 +65,7 @@ export function createPhotoRepository(pool: pg.Pool): PhotoRepository {
       values.push(updatedAt);
       const result = await pool.query(
         `UPDATE photos SET ${sets.join(", ")} WHERE id = $1 AND owner_id = $2
-         RETURNING id, owner_id, object_key, thumb_key, content_type, byte_size,
-                   taken_at, location_text, latitude, longitude, description, tags,
-                   status, source_user_id, source_key_id, created_at, updated_at`,
+         RETURNING ${PHOTO_COLUMNS}`,
         values,
       );
       return mapPhoto(result.rows[0]);
@@ -102,9 +101,10 @@ function mapPhoto(row: Record<string, unknown> | undefined): Photo | null {
     longitude: row.longitude == null ? null : Number(row.longitude),
     description: row.description == null ? null : String(row.description),
     tags: Array.isArray(tags) ? tags.map(String) : [],
-    status: String(row.status),
+    status: parsePhotoStatus(String(row.status)),
     sourceUserId: row.source_user_id == null ? null : String(row.source_user_id),
     sourceKeyId: row.source_key_id == null ? null : String(row.source_key_id),
+    errorCode: row.error_message == null ? null : String(row.error_message),
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
   };
