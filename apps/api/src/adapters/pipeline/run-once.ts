@@ -40,7 +40,8 @@ export async function runOnce(deps: PipelineDeps, now: Date, limit: number, cont
 async function runClaimed(deps: PipelineDeps, job: ClaimedJob, now: Date): Promise<void> {
   let step: PipelineStep = job.type === "reembed" ? "embed" : job.step;
   let original: Buffer | null = null;
-  for (let hop = 0; hop < 6 && step !== "done"; hop += 1) {
+  // hop 上限 8：一次从 exif 开始的处理加上一次缩略图回退。
+  for (let hop = 0; hop < 8 && step !== "done"; hop += 1) {
     if ((step === "exif" || step === "thumbnail" || step === "vision") && !original) {
       const loaded = await loadOriginal(deps, job, now);
       if (loaded === "stop") return;

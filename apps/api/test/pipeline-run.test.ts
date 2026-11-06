@@ -314,6 +314,38 @@ serial("并发 2 领走两条到期任务，未来任务保持 pending", async (
   assert.equal(later.rows[0].status, "pending");
 });
 
+serial("embed 发现 thumb_key 为空时同一次 runOnce 回退并完成", async () => {
+  await reset();
+  await insertPhoto({ id: photoId });
+  await insertJob({ id: jobId, photoId });
+  const base = createFakeEmbedGateway({ dimensions: 1536 });
+  const embed: ReturnType<typeof createFakeEmbedGateway> = {
+    get calls() {
+      return base.calls;
+    },
+    async embed(input) {
+      if (base.calls === 0) {
+        await pool.query(`UPDATE photos SET thumb_key = NULL WHERE id = $1`, [photoId]);
+      }
+      return base.embed(input);
+    },
+  };
+  const { deps, storage } = harness({ embed });
+  await storage.putObject({
+    key: `owners/${ownerId}/photos/${photoId}/original`,
+    contentType: "image/jpeg",
+    body: Buffer.from("orig"),
+  });
+  await runOnce(deps, now, 2);
+  const job = await pool.query(`SELECT status FROM jobs WHERE id = $1`, [jobId]);
+  assert.equal(job.rows[0].status, "done");
+  assert.notEqual(job.rows[0].status, "running");
+  const photo = await pool.query(`SELECT status, thumb_key FROM photos WHERE id = $1`, [photoId]);
+  assert.equal(photo.rows[0].status, "ready");
+  assert.equal(photo.rows[0].thumb_key, `owners/${ownerId}/photos/${photoId}/thumb`);
+  assert.equal(embed.calls, 2);
+});
+
 serial("已经 ready 的照片不会再次调用视觉、嵌入和 putObject", async () => {
   await reset();
   await insertPhoto({ id: photoId, status: "ready", thumbKey: `owners/${ownerId}/photos/${photoId}/thumb` });
