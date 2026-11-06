@@ -3,7 +3,6 @@ import type { SearchHit, SearchPhoto, SearchPort } from "../domain/search/ports.
 import { mapPhotoRow, PHOTO_COLUMNS } from "./photo-repository.js";
 import { formatVectorLiteral } from "./vector-literal.js";
 
-// Postgres ILIKE: ESCAPE '\'
 const KEYWORD_SQL = `SELECT ${PHOTO_COLUMNS}
 FROM photos p
 WHERE p.owner_id = $1

@@ -407,5 +407,6 @@ serial("检索 SQL 使用余弦距离，不按 model 过滤，也不建近似索
   assert.equal(source.includes("e.model"), false);
   assert.equal(/using\s+hnsw/i.test(source), false);
   assert.equal(/ivfflat/i.test(source), false);
-  assert.match(source, /ESCAPE '\\'/);
+  const ilikeEscapeClauses = source.match(/ILIKE \$5 ESCAPE '\\\\'/g);
+  assert.equal(ilikeEscapeClauses?.length, 2);
 });
