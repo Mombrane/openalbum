@@ -13,11 +13,11 @@
 
 Phase 2 把原图放进对象存储，并插入 `photos`，状态为 `processing`。完成上传的事务只写照片和会话，不写 `jobs`。`thumb_key` 与 `error_message` 保持空。列表和详情能签发原图的签名 URL。PATCH 可以改元数据，但不会入队，也不会改 `status`。
 
-Phase 3 在这张 `processing` 的照片上补齐异步流水线：读 EXIF、生成缩略图、调用外部视觉模型填写仍为空的描述与标签、调用外部嵌入模型写入向量，然后把状态改为 `ready`。视觉或嵌入失败时原图仍可访问，状态变为 `failed`，语义步骤可以再跑。主人或 Agent 改了描述或标签之后，可以只重做嵌入。
+Phase 3 在这张 `processing` 的照片上补齐异步流水线：读 EXIF、生成缩略图、调用外部视觉模型填写仍为空的描述与标签、调用外部嵌入模型写入向量，然后把状态改为 `ready`。从本阶段起，首次插入 `photos` 的同一事务插入 `process_photo`。视觉或嵌入失败时原图仍可访问，状态变为 `failed`，语义步骤可以再跑。主人或 Agent 改了描述或标签之后，可以只重做嵌入。
 
 模型调用只走外部 HTTP。进程内不加载、不运行大模型。
 
-本地和 CI 在没有真实视觉、嵌入或对象存储时，用网关层的假实现跑完同一条流水线。生产密钥仍是占位符时，不得把「先填好密钥」写成测试或 API 进程的启动条件。
+本地、CI 与非 production 的 worker 在没有真实视觉或嵌入时，用网关层的假实现跑完同一条流水线。`npm test` 注入这些假实现，不把填好生产密钥写成失败条件。`NODE_ENV=production` 时，视觉、嵌入或 S3 占位符让 worker 退出；生产环境的 API 在 S3 占位符上同样退出。两种情况都不用假网关把照片标成 `ready`，见第 9 节。
 
 交付物是 worker、流水线用例、照片响应上的缩略图与错误码、一个重试路由，以及自动化测试。不改 `apps/web`。
 
@@ -28,7 +28,7 @@ Phase 3 在这张 `processing` 的照片上补齐异步流水线：读 EXIF、�
 | 议题 | 决定 |
 |------|------|
 | 任务拆分 | 一张照片两种任务：`process_photo` 与 `reembed`。`process_photo` 在同一条 job 内按 `exif → thumbnail → vision → embed` 推进，进度写在 `payload.step`。不拆成四条 job |
-| 何时插入 job | 首次插入 `photos` 的同一事务插入 `process_photo`。PATCH 只有描述或标签的值真的变了才插入 `reembed`。`POST /photos/:id/retry` 只在 `failed` 时新插一条 `process_photo`。`completing` 期间不入队 |
+| 何时插入 job | 首次插入 `photos` 的同一事务插入 `process_photo`。PATCH 只有描述或标签的值真的变了才插入 `reembed`。`POST /photos/:id/retry` 只在 `failed` 时新插一条 `process_photo`。照片已是 `failed` 且已有 `process_photo` 历史行时，再次 `complete` 不入队。`completing` 期间不入队 |
 | 领取 | `pending` 且 `run_after <= now`，`FOR UPDATE SKIP LOCKED`。间隔 `PIPELINE_POLL_MS`，本进程并发 `PIPELINE_CONCURRENCY` |
 | 重试 | 一次领取跑完剩余步骤。可重试失败最多 5 次（领取时 `attempts` 加一）。退避 30s、60s、120s、240s。维度不符、拒绝类与解码失败立即终态 |
 | 幂等 | 同一 `photo_id + type` 至多一条 `pending` 或 `running`。步骤按已落库结果跳过。嵌入在持锁复核文本之后才提交 |
@@ -41,7 +41,7 @@ Phase 3 在这张 `processing` 的照片上补齐异步流水线：读 EXIF、�
 | 向量事务 | 嵌入 HTTP 在事务外。提交时同一事务：锁照片、复核文本、upsert `photo_embeddings`、更新照片状态、把 job 标为 `done` |
 | 进程 | 独立入口 `apps/api/src/worker.ts`，不监听端口。API 进程不轮询。测试调用 `runOnce`，注入假网关和时钟，不睡眠等轮询 |
 | 删除 | `photo_embeddings` 已有级联。给 `jobs` 加上 `photo_id` 外键并级联删除。删行之后的对象清理仍按 Phase 2：原图与非空 `thumb_key` 尽力删除 |
-| 假实现 | 假视觉、假嵌入、假 EXIF、假缩略图、假对象存储都放在 `gateways/`。占位符密钥让 worker 选用假视觉和假嵌入，API 进程不读这些变量 |
+| 假实现 | 假视觉、假嵌入、假 EXIF、假缩略图、假对象存储都放在 `gateways/`。开关是 `NODE_ENV`：trim 后等于 `production` 时，视觉、嵌入或 S3 占位符命中则 worker `exit 1`，生产环境的 API 在 S3 占位符上同样 `exit 1`，不用假网关。非 production 的视觉与嵌入占位符仍用假网关，并打一条静态 INFO。测试注入的假实现不看 `NODE_ENV`。API 不读 `VISION_*` / `EMBED_*` |
 | 明确不做 | 搜索排序、共享册、人脸、自动事件、网页、反向地理编码、以图搜图、过期上传会话的后台清扫、在 CVM 上跑模型 |
 
 ## 3. 架构与分层
@@ -58,6 +58,8 @@ Phase 3 在这张 `processing` 的照片上补齐异步流水线：读 EXIF、�
 - EXIF 补空、视觉结果是否允许写入、嵌入文本、向量长度与有限数校验、失败种类到「重试或终态」的映射、PATCH 是否构成语义变更。
 - 缩略图对象键。原图键函数保持不动。
 - 端口在现有 `ObjectStorage`、`PhotoRepository` 上扩展，并增加任务、嵌入、EXIF、缩略图、视觉、嵌入网关。端口的参数和返回值只有普通数据，没有 SDK 类型、没有 `fetch` 的 `Response`。
+
+实现提交必须修改 `scripts/check-layer-boundaries.mjs`，把 `sharp` 和 `exifr` 加入领域层禁止 import 的包名单，与现有的 `fastify`、`pg`、`undici` 放在一起。领域文件 import `sharp` 或 `exifr` 时，`node scripts/check-layer-boundaries.mjs` 的退出码为 1。本设计提交不改该脚本。
 
 `ObjectStorage` 在 Phase 2 的操作之外增加：
 
@@ -131,10 +133,10 @@ HTTP 网关使用全局 `fetch`，`redirect: "manual"`。遇到 3xx 不再请求
 
 ### 3.6 组合根
 
-- `buildApp` 仍负责 HTTP。未注入 `storage` 时继续用内存假存储。`buildApp` 不创建视觉或嵌入客户端，不启动轮询，也不读取 `VISION_*`、`EMBED_*`、`PIPELINE_*`。现有身份测试与健康检查不注入这些配置，必须仍能构造应用。
-- `src/index.ts` 仍只加载身份与对象存储配置。视觉或嵌入是占位符时，API 进程照常监听。
-- `src/worker.ts` 加载同一份环境文件里的数据库、对象存储和流水线配置，构造网关，循环调用与 `runOnce` 相同的领取逻辑。它不调用 `listen`。
-- 测试不走 `worker.ts`。测试直接调用 `runOnce`，并把假网关放进 `deps`。
+- `buildApp` 仍负责 HTTP。未注入 `storage` 时继续用内存假存储。`buildApp` 不创建视觉或嵌入客户端，不启动轮询，也不读取 `VISION_*`、`EMBED_*`、`PIPELINE_*`、`NODE_ENV`。现有身份测试与健康检查不注入这些配置，必须仍能构造应用。
+- `src/index.ts` 仍加载身份与对象存储配置。它不读视觉和嵌入，因此这两侧是占位符时 API 照常监听。`NODE_ENV=production` 且 S3 命中第 9 节的占位符时，API 进程按第 9 节退出。
+- `src/worker.ts` 加载同一份环境文件里的数据库、对象存储和流水线配置，按第 9 节决定退出还是构造网关，然后循环调用与 `runOnce` 相同的领取逻辑。它不调用 `listen`。
+- 测试不走 `worker.ts`，也不看 `NODE_ENV`。测试直接调用 `runOnce`，并把假网关放进 `deps`。
 
 个人库测试继续显式注入内存假存储。流水线测试显式注入第 3.4 节的假视觉、假嵌入、假 EXIF 和假缩略图，不能依赖「忘了注入所以碰巧是假的」。
 
@@ -151,8 +153,8 @@ HTTP 网关使用全局 `fetch`，`redirect: "manual"`。遇到 3xx 不再请求
 不变量：
 
 - `ready` 的 `error_message` 为空。
-- `failed` 的 `error_message` 是第 4.4 节的稳定码，不是上游正文。
-- `processing` 的 `error_message` 可以为空，也可以是最近一次可重试失败或租约中断的稳定码。
+- `failed` 的 `error_message` 要么是已经写下的业务码（第 4.4 节里除 `interrupted` 以外的稳定码），要么在仅因租约耗尽、且此前没有业务码时保持为空。它不是上游正文。租约回收不用 `interrupted` 覆盖已有业务码。
+- `processing` 的 `error_message` 可以为空，也可以是最近一次可重试失败的业务码。租约回收不改写这一列。
 - 列表和详情仍返回这三种状态的照片。本阶段不按状态过滤。
 
 `process_photo` 的终态失败只把仍为 `processing` 的行改成 `failed`。已经是 `ready` 的行保持 `ready`。
@@ -196,9 +198,9 @@ HTTP 网关使用全局 `fetch`，`redirect: "manual"`。遇到 3xx 不再请求
 | `embed_rejected` | 嵌入其他 4xx、3xx、200 但没有数值数组 | 立即终态 |
 | `dimension_mismatch` | 数组长度与期望维度不同 | 立即终态 |
 | `invalid_embedding` | 数组含非有限数 | 立即终态 |
-| `interrupted` | 运行中的任务超过租约 | 见第 5.4 节。关机时没写完的任务改回 `pending`，不记这个码 |
+| `interrupted` | 运行中的任务超过租约 | 只出现在回收日志的 `errorCode`，不写入 `jobs.last_error` 或 `photos.error_message`。关机时没写完的任务改回 `pending`，日志也不记这个码 |
 
-稳定码就是上表左列的字符串。`jobs.last_error` 只存稳定码。`photos.error_message` 在 `process_photo` 失败时存同一个码。
+稳定码就是上表左列的字符串。`jobs.last_error` 与 `photos.error_message` 只存业务码，也就是除 `interrupted` 以外的那些字符串。`interrupted` 不入库。
 
 可重试：领取后的 `attempts` 小于 5 时，job 回到 `pending`，`run_after = now + delay`。`delay` 秒数是 `min(30 * 2^(attempts - 1), 900)`。因此四次等待依次是 30、60、120、240 秒。第 5 次仍可重试失败，则 job 为 `failed`；若类型是 `process_photo` 且照片仍为 `processing`，照片改为 `failed`。
 
@@ -208,10 +210,10 @@ HTTP 网关使用全局 `fetch`，`redirect: "manual"`。遇到 3xx 不再请求
 
 ### 4.5 已填写字段
 
-视觉归一化使用与 Phase 2 PATCH 相同的长度和字符规则：
+视觉归一化的字符允许集与 Phase 2 第 4.8 节的 PATCH 相同。长度的处置不同：PATCH 拒绝超长描述；视觉把超长描述截断后再写入。
 
-- 描述：trim。trim 后为空则当作没有描述。含不允许的控制字符则当作没有描述。长于 4000 个 UTF-16 码元则截到 4000；若截断处落在高代理项，再去掉那一个码元。
-- 标签：每一项 trim，去掉空项、控制字符、长度不在 1–64 的项，去重并保留第一次出现的顺序，最多 32 个。多出来的丢掉。
+- 描述：trim。trim 后为空则当作没有描述。允许制表符（U+0009）与换行（U+000A）。拒绝其他 U+0000–U+001F 与 U+007F；含这些字符则整段描述当作没有，不因此让视觉步骤失败。长于 4000 个 UTF-16 码元时截到 4000；若截断处落在高代理项，再去掉那一个码元。PATCH 仍按 Phase 2 拒绝超长描述，不截断。
+- 标签：与 Phase 2 标签相同的允许集。每一项 trim。拒绝控制字符，含制表符和换行（U+0000–U+001F 与 U+007F）。去掉空项、含控制字符的项、长度不在 1–64 的项，去重并保留第一次出现的顺序，最多 32 个。多出来的丢掉，不因此让视觉步骤失败。
 
 归一化之后：
 
@@ -272,7 +274,7 @@ Phase 2 合同里「PATCH 不入队」到此为止。本阶段只对上述语义
 
 **首次入库。** 适配层用现有的 id 生成器造出 job id，放进 `insertPhotoAndComplete` 的入参。该函数已经在一个事务里插入 `photos` 并把会话改成 `completed`。同一事务、照片插入成功的分支里插入 `process_photo`，`step` 为 `exif`，`run_after` 为这次完成使用的 `now`。照片插入因主键冲突回滚并返回 `exists` 时，这一事务里没有新的 job。DAO 只执行插入，不判断要不要入队；首次成功插入一定入队。
 
-`exists` 之后另做一次短事务补救：照片存在、状态为 `processing`、且该照片没有任何 `process_photo` 行（四种状态都算）时，插入一条 `process_photo`。已有 `failed` 或 `done` 的 `process_photo` 时不补，避免再次 `complete` 把失败照片悄悄重跑。唯一冲突忽略，完成接口仍按 Phase 2 返回已有照片。其他数据库错误返回 500 `internal_error`，文案「上传未能完成」，不删除已经存在的照片。客户端再次完成会再试补插。
+`exists` 之后另做一次短事务补救：照片存在、状态为 `processing`、且该照片没有任何 `process_photo` 行（四种状态都算）时，插入一条 `process_photo`。已有 `failed` 或 `done` 的 `process_photo` 时不补。照片状态已是 `failed` 且已经有历史 `process_photo` 行时，再次 `complete` 不插入任务，也不把状态改回 `processing`；要重跑必须调用 `POST /photos/:id/retry`。唯一冲突忽略，完成接口仍按 Phase 2 返回已有照片。其他数据库错误返回 500 `internal_error`，文案「上传未能完成」，不删除已经存在的照片。客户端再次完成会再试补插；照片若已是 `failed`，这次重试完成仍然不入队。
 
 会话处于 `open` 或 `completing`、对象存储尚未完成、照片行还不存在时，不插入 job。worker 不读 `upload_sessions`。
 
@@ -316,12 +318,12 @@ RETURNING id, type, photo_id, payload, attempts, locked_at;
 
 租约长度是固定的 600000 毫秒，不设环境变量。一次尝试里的外部调用上限是：读原图 60 秒、写缩略图 60 秒、视觉 60 秒、嵌入 30 秒，总和小于租约。
 
-`locked_at <= now - 600000ms` 且仍为 `running` 的行：
+`locked_at <= now - 600000ms` 且仍为 `running` 的行，先处理 `attempts >= 5`，再回收其余行。两种情况都不改写已有业务码。`last_error` 与照片 `error_message` 里已经是 `vision_unavailable` 这类业务码时，保持原文。两列为空也保持为空，不补上 `interrupted`。
 
-- `attempts >= 5`：job 改为 `failed`，`last_error = interrupted`，`locked_at` 清空。类型是 `process_photo` 且照片仍为 `processing` 时，照片改为 `failed`，`error_message = interrupted`。
-- `attempts < 5`：job 改为 `pending`，`run_after = now`，`last_error = interrupted`，`locked_at` 清空，`attempts` 不变。类型是 `process_photo` 且照片仍为 `processing` 时，只把 `error_message` 写成 `interrupted`。
+- `attempts >= 5`：job 改为 `failed`，`locked_at` 清空，`last_error` 保持回收前的值。类型是 `process_photo` 且照片仍为 `processing` 时，照片改为 `failed`，`error_message` 保持回收前的值。
+- `attempts < 5`：job 改为 `pending`，`run_after = now`，`locked_at` 清空，`attempts` 不变，`last_error` 保持回收前的值。照片状态与 `error_message` 都不变。
 
-先处理 `attempts >= 5` 的行，再回收其余行。
+每一条被租约回收的任务打一条日志：静态文案「任务租约回收」，`errorCode` 为 `interrupted`。这条 `interrupted` 只存在于日志，不写回 `jobs.last_error`，也不写回照片的 `error_message`。
 
 worker 收到 SIGTERM 或 SIGINT：停止领取，最多再等 60 秒让本进程已领取的任务写完。仍未结束的，把本进程记得的 `id` 与 `locked_at` 对上号之后改回 `pending`，`attempts` 减 1（不低于 0），`locked_at` 清空，`run_after = now`。对不上号说明锁已经不属于这次领取，不再改那一行。然后进程退出。API 进程没有这条循环，不处理这些信号的任务回收。
 
@@ -534,7 +536,7 @@ Accept: application/json
 
 `photo_embeddings.model` 写入配置里的 `EMBED_MODEL`，不写响应里回显的模型名。
 
-假嵌入在测试里按输入文本变化：同样的文本得到同样的向量，不同文本得到不同向量，长度等于调用方要求的维度。占位符模式下的假嵌入也必须输出 1536 维。比较时用数值相等即可，不规定具体哈希算法，但同一进程内必须稳定。
+假嵌入在测试里，以及非 production 的占位符假网关上，按输入文本变化：同样的文本得到同样的向量，不同文本得到不同向量，长度等于调用方要求的维度。占位符假嵌入必须输出 1536 维。比较时用数值相等即可，不规定具体哈希算法，但同一进程内必须稳定。`NODE_ENV=production` 命中嵌入占位符时进程按第 9 节退出，不构造这个假网关，也不会用假向量把照片标成 `ready`。
 
 ### 7.5 维度放在哪一层
 
@@ -577,7 +579,7 @@ Phase 2 的路由、鉴权、404 文案「未找到」、校验文案和错误�
 
 `thumb_key` 非空时，`thumbUrl` 用与原图相同的 `presignGet` 和同一 TTL。`thumbUrlExpiresAt` 等于这次签发的 `now + TTL`。签发缩略图失败：500 `storage_error`，文案「对象存储不可用」，不返回缺少 URL 的照片。响应仍不包含 `objectKey`、`thumbKey`、`sourceUserId`、`sourceKeyId`，也不包含 `jobs` 行。
 
-`errorCode` 来自 `error_message`。它是稳定码。`status` 才是终态：`processing` 配合非空 `errorCode` 表示最近一次尝试失败、还会再跑，或租约中断过。`failed` 表示 `process_photo` 已经终态失败。`ready` 时 `errorCode` 为 `null`。
+`errorCode` 来自 `error_message`。它是业务稳定码。`status` 才是终态：`processing` 配合非空 `errorCode` 表示最近一次尝试的业务失败，还会再跑。租约回收不把 `errorCode` 改成 `interrupted`。`failed` 表示 `process_photo` 已经终态失败。`ready` 时 `errorCode` 为 `null`。
 
 完成上传的响应仍在提交后立即返回，当时状态是 `processing`，缩略图 URL 仍为 `null`。客户端之后用 `GET /photos/:id` 看它是否变成 `ready`。本阶段没有 webhook，也没有单独的任务查询路由。
 
@@ -594,7 +596,7 @@ Phase 2 的路由、鉴权、404 文案「未找到」、校验文案和错误�
 |------|------|----------------|
 | `POST` | `/photos/uploads` | 无 |
 | `PUT` 或 `POST` | `/photos/uploads/:id/parts/:partNumber` | 无 |
-| `POST` | `/photos/uploads/:id/complete` | 同一事务入队，见第 5.2 节。响应照片多三个字段 |
+| `POST` | `/photos/uploads/:id/complete` | 首次插入的同一事务入队，见第 5.2 节。照片已是 `failed` 且已有历史 `process_photo` 行时，再次完成不入队，必须改走 `POST /photos/:id/retry`。响应照片多三个字段 |
 | `POST` | `/photos/uploads/:id/abort` | 无 |
 | `GET` | `/photos` | 元素多三个字段 |
 | `GET` | `/photos/:id` | 多三个字段 |
@@ -640,19 +642,24 @@ API 进程的必填项与 Phase 2 相同。流水线变量只由 worker 读取�
 | `EMBED_TIMEOUT_MS` | 空白时 30000。区间同视觉超时，文案换成 `EMBED_TIMEOUT_MS 无效` |
 | `EMBED_DIMENSIONS` | 必须是 `1536`。见第 7.5 节 |
 | `S3_PUBLIC_BASE_URL` | 不读取 |
-| `S3_*` 其余项 | worker 与 API 一样，用 Phase 2 的 `loadStorageConfig`。不合法则 worker 退出，文案沿用 Phase 2，不回显密钥 |
+| `S3_*` 其余项 | worker 与 API 一样，用 Phase 2 的 `loadStorageConfig`。语法不合法则进程退出，文案沿用 Phase 2，不回显密钥。占位符另见下方 |
+| `NODE_ENV` | trim 后等于 `production` 才是生产。未设置、空白或其他值都按非 production。不新增别的开关 |
 
-占位规则：下面任一成立时，该侧使用假网关，而不是退出：
+占位字符串与 `deploy/env.example` 里的示例值逐字比较，比较前只做 trim：
 
-- 值为空白。
-- 视觉基址去掉末尾斜杠后等于 `https://YOUR_VISION_API_BASE`，或密钥等于 `YOUR_VISION_API_KEY`，或模型等于 `YOUR_VISION_MODEL`。三项里有一项命中，视觉整侧都用假实现，避免把占位密钥发给真实地址，也避免把真实密钥发给占位地址。
-- 嵌入基址、密钥、模型与 `deploy/env.example` 里的 `YOUR_EMBED_API_BASE`、`YOUR_EMBED_API_KEY`、`YOUR_EMBED_MODEL` 做同样的判断。
+| 侧 | 命中条件（任一即可） |
+|----|----------------------|
+| 视觉 | `VISION_API_BASE_URL` 为空白，或去掉末尾斜杠后等于 `https://YOUR_VISION_API_BASE`；或 `VISION_API_KEY` 为空白或等于 `YOUR_VISION_API_KEY`；或 `VISION_MODEL` 为空白或等于 `YOUR_VISION_MODEL` |
+| 嵌入 | 与视觉相同的结构，示例值是 `https://YOUR_EMBED_API_BASE`、`YOUR_EMBED_API_KEY`、`YOUR_EMBED_MODEL` |
+| S3 | `S3_BUCKET` 等于 `YOUR_BUCKET_NAME`，或 `S3_ACCESS_KEY_ID` 等于 `YOUR_ACCESS_KEY`，或 `S3_SECRET_ACCESS_KEY` 等于 `YOUR_SECRET_KEY` |
 
-基址带 userinfo，或不是合法的 `http` / `https` URL：这一侧在占位判断之前就退出，文案 `VISION_API_BASE_URL 无效` 或 `EMBED_API_BASE_URL 无效`。退出文案不包含 URL 的用户信息。
+基址非空、但带 userinfo 或不是合法的 `http` / `https` URL：不论 `NODE_ENV`，这一侧先退出，文案 `VISION_API_BASE_URL 无效` 或 `EMBED_API_BASE_URL 无效`。退出文案不包含 URL 的用户信息。S3 的语法错误仍用 Phase 2 的文案，先于占位判断。
 
-假视觉的固定输出是描述 `未配置视觉模型`、标签 `["未配置"]`。假嵌入按第 7.4 节返回 1536 维。worker 启动时各记一条静态日志：`视觉网关使用假实现` 或 `视觉网关使用 HTTP`，嵌入侧同样两条。日志里不出现密钥、完整基址和模型字符串。
+`NODE_ENV=production` 时，上表任一侧命中：worker 以退出码 1 结束，文案是 `视觉配置仍是占位符`、`嵌入配置仍是占位符` 或 `对象存储配置仍是占位符`。不构造该侧的假网关，不轮询，因此不会用假描述或假向量把照片标成 `ready`。API 进程的 `src/index.ts` 在生产环境命中 S3 占位符时也以退出码 1 结束，文案同样是 `对象存储配置仍是占位符`。API 不读视觉和嵌入变量，不因为这两侧的占位符退出。
 
-对象存储配置不合法时，worker 仍然退出。流水线测试不启动 `worker.ts`，因此 CI 不必提供真实的 S3、视觉或嵌入密钥。`npm test` 也不必为了 API 进程去填这些占位符；API 进程对视觉和嵌入保持不读。
+非 production：视觉或嵌入命中占位时，该侧使用假网关。假视觉的固定输出是描述 `未配置视觉模型`、标签 `["未配置"]`。假嵌入按第 7.4 节返回 1536 维。worker 启动时对该侧打一条 INFO，文案固定为 `视觉网关使用假实现` 或 `嵌入网关使用假实现`。真实 HTTP 那一侧的 INFO 文案是 `视觉网关使用 HTTP` 或 `嵌入网关使用 HTTP`。这些日志不出现密钥、完整基址和模型字符串。非 production 的 S3 占位符不换成内存假存储；假对象存储只在测试注入。worker 与 API 仍按 Phase 2 构造真实客户端，语法合法就启动。
+
+流水线测试不启动 `worker.ts`，因此 CI 不必提供真实的 S3、视觉或嵌入密钥。`npm test` 也不必为了 `buildApp` 去填这些占位符。配置解析测试要覆盖：非 production 加 `YOUR_VISION_API_KEY` 得到假视觉；`NODE_ENV=production` 加同一占位符时结果是退出，且错误文案不含这枚密钥。
 
 实现时可增加 npm script：`worker` 用 `tsx src/worker.ts`，生产用 `node dist/worker.js`。systemd 另加一个单元草图，`EnvironmentFile` 与 API 相同，`ExecStart` 指向 `dist/worker.js`，不监听端口。这些文件都在实现提交里改。
 
@@ -666,7 +673,7 @@ API 进程的必填项与 Phase 2 相同。流水线变量只由 worker 读取�
 - 原图字节、缩略图字节、base64 正文、嵌入向量
 - 视觉或嵌入 HTTP 客户端错误的 `message`，以及上游响应正文。这些文本可能带上请求 URL
 
-流水线日志只许带这些字段：`userId`、`photoId`、`objectKey`、`jobId`、`jobType`、`step`、`attempt`、`errorCode`、`errorName`。另加一条静态中文，例如「视觉调用失败」「嵌入调用失败」「缩略图失败」「维度不一致」「对象存储失败」「照片已删除」。`errorCode` 是稳定码。`errorName` 是异常的 `name`，例如 `ThumbnailEncodeError`。不记录异常的 `message`。
+流水线日志只许带这些字段：`userId`、`photoId`、`objectKey`、`jobId`、`jobType`、`step`、`attempt`、`errorCode`、`errorName`。另加一条静态中文，例如「视觉调用失败」「嵌入调用失败」「缩略图失败」「维度不一致」「对象存储失败」「照片已删除」「任务租约回收」。`errorCode` 在租约回收时是 `interrupted`，在其余流水线日志里是业务码。`errorName` 是异常的 `name`，例如 `ThumbnailEncodeError`。不记录异常的 `message`。
 
 Phase 2 上传路径已允许的字段保持不变。实现时把 `thumbUrl`、`photo.thumbUrl`、`photos[*].thumbUrl`、`dataBase64`、`embedding` 补进现有 redact 路径。身份测试要求的 redact 路径和 `originalUrl` 路径保持不动。worker 使用同一份 redact 配置。
 
@@ -678,11 +685,11 @@ Phase 2 上传路径已允许的字段保持不变。实现时把 `thumbUrl`、`
 
 集成测试放在 `apps/api/test/processing-pipeline.test.ts`，使用现有的 `node:test` 与 `buildApp().inject`。仓储走真实 PostgreSQL：`DATABASE_URL` 指向本地库。缺少 `DATABASE_URL` 时失败，而不是跳过。对象存储、视觉、嵌入、EXIF、缩略图都使用 `gateways/` 里的假实现。时钟可替换。`runOnce` 不使用真实的 `setTimeout` 去等待 `PIPELINE_POLL_MS` 或退避；测试把 `now` 拨过 `run_after` 再调用一次。
 
-`npm test` 里的分层边界检查必须通过。实现时把 `sharp` 和 `exifr` 加进领域层禁止的包名单。`domain/library` 与 `adapters/library`、`adapters/pipeline` 的源码不出现 `@aws-sdk/`、`sharp`、`exifr`、`undici`。适配层源码不出现 `/dao` 与 `/gateways`。
+`npm test` 里的分层边界检查必须通过。实现提交按第 3.1 节把 `sharp` 和 `exifr` 加入 `scripts/check-layer-boundaries.mjs` 的领域禁止名单。`domain/library` 与 `adapters/library`、`adapters/pipeline` 的源码不出现 `@aws-sdk/`、`sharp`、`exifr`、`undici`。适配层源码不出现 `/dao` 与 `/gateways`。
 
 断言至少覆盖：
 
-1. 完成上传的事务提交后有一条 `process_photo`，`payload.step` 为 `exif`，照片状态为 `processing`。会话仍是 `completing`、照片行还不存在时，`jobs` 里没有该 `photo_id`。再次完成返回 200，且 `process_photo` 仍是一行。
+1. 完成上传的事务提交后有一条 `process_photo`，`payload.step` 为 `exif`，照片状态为 `processing`。会话仍是 `completing`、照片行还不存在时，`jobs` 里没有该 `photo_id`。再次完成返回 200，且 `process_photo` 仍是一行。把照片改成 `failed` 并留下这条历史 `process_photo` 后再完成一次：仍返回已有照片，`jobs` 里该类型的行数不变，状态仍是 `failed`。
 2. `runOnce` 使用假 EXIF、假缩略图、假视觉、假嵌入后，照片变为 `ready`，`errorCode` 为 `null`。`thumb_key` 等于 `owners/{userId}/photos/{photoId}/thumb`。假存储里该键的字节非空。描述和标签等于假视觉的返回。`photo_embeddings` 有一行，向量长度 1536，`model` 等于注入的模型名。详情里的 `thumbUrl` 与 `thumbUrlExpiresAt` 有值，`originalUrl` 仍在。
 3. 完成之前 PATCH 写入 `takenAt` 和经纬度。假 EXIF 给出不同的时间和坐标。跑完后列仍是用户的值。`locationText` 仍是用户的值或空，不被 EXIF 填写。用户没填的那张照片则会写上假 EXIF 的时间和成对坐标。
 4. 用户在流水线之前写了描述和标签：假视觉的调用次数为 0，描述和标签不变，嵌入文本使用用户的内容。只写了标签时，视觉可以填上空的描述，标签保持用户的数组。
@@ -694,11 +701,12 @@ Phase 2 上传路径已允许的字段保持不变。实现时把 `thumbUrl`、`
 10. 照片为 `failed` 且已有缩略图时，PATCH 新描述产生的 `reembed` 成功后，状态变为 `ready`。没有缩略图时，`reembed` 成功后状态仍是 `failed`。
 11. `POST /photos/:id/retry` 对 `failed` 返回 200，`status` 为 `processing`，并新插入 `process_photo`。对 `ready` 返回 409，`error.code` 为 `not_failed`，文案「照片不在失败状态」。另一用户返回 404。
 12. 删除 `ready` 的照片返回 204。`photo_embeddings` 与该照片的 `jobs` 行都不在。假存储收到原图键和缩略图键的删除。
-13. 配置解析放在 `apps/api/test/pipeline-config.test.ts`，不连接数据库。`EMBED_DIMENSIONS=1536` 通过；`768`、空白、`abc` 分别拒绝。`VISION_API_KEY=YOUR_VISION_API_KEY` 解析为假视觉，抛错对象或日志字符串里不含这枚密钥。`PIPELINE_POLL_MS` 空白为 2000，`50` 拒绝。集成测试里，`buildApp` 在不设置 `VISION_*` 与 `EMBED_*` 时仍能完成 Phase 2 的上传。
+13. 配置解析放在 `apps/api/test/pipeline-config.test.ts`，不连接数据库。`EMBED_DIMENSIONS=1536` 通过；`768`、空白、`abc` 分别拒绝。非 production 且 `VISION_API_KEY=YOUR_VISION_API_KEY` 时解析为假视觉。同一占位符在 `NODE_ENV=production` 时得到退出，文案是 `视觉配置仍是占位符`，且不含这枚密钥。`S3_ACCESS_KEY_ID=YOUR_ACCESS_KEY` 在生产环境同样退出，文案是 `对象存储配置仍是占位符`，不含密钥。`PIPELINE_POLL_MS` 空白为 2000，`50` 拒绝。集成测试里，`buildApp` 在不设置 `VISION_*` 与 `EMBED_*` 时仍能完成 Phase 2 的上传。
 14. 让假视觉抛出的错误 `message` 里带上密钥哨兵和 `X-Amz-Signature`。流水线日志含「视觉调用失败」，不含哨兵、不含 `X-Amz-Signature`、不含 `dataBase64`。
 15. 两条到期的 `process_photo`，并发为 2，一次 `runOnce` 都变成 `done`。第三条 `run_after` 在未来，仍是 `pending`。
 16. 已经 `ready` 后再 `runOnce`：假视觉、假嵌入、`putObject` 的调用次数都不增加。
-17. `npm test` 的分层边界检查通过。领域源码不包含 `sharp`、`exifr`、`@aws-sdk/`。
+17. `npm test` 的分层边界检查通过。领域源码不包含 `sharp`、`exifr`、`@aws-sdk/`。`scripts/check-layer-boundaries.mjs` 的领域禁止名单含 `sharp` 与 `exifr`。
+18. 一条 `running` 的 `process_photo`，`attempts` 为 5，`last_error` 与照片 `error_message` 都是 `vision_unavailable`，`locked_at` 早于租约。`runOnce` 之后 job 为 `failed`，这两个字段仍是 `vision_unavailable`，照片状态为 `failed`。日志含「任务租约回收」和 `interrupted`，数据库列里没有 `interrupted`。
 
 Phase 2 里对照片 JSON 做整对象比较的断言，实现时要算上 `errorCode`、`thumbUrl`、`thumbUrlExpiresAt`。上传刚完成时这三个值是 `null`。
 
@@ -738,12 +746,13 @@ Phase 2 里对照片 JSON 做整对象比较的断言，实现时要算上 `erro
 ## 14. 已确认决策
 
 - `process_photo` 在一条 job 内依次做 EXIF、缩略图、视觉和文本嵌入；`reembed` 只做嵌入。
-- 首次插入照片的同一事务入队。PATCH 只在描述或标签真正变化时入队。`failed` 经 `POST /photos/:id/retry` 再入队。`completing` 不入队。
-- 领取使用 `SKIP LOCKED`。可重试失败最多 5 次，退避 30、60、120、240 秒。维度不符和拒绝类错误立即失败。
-- 用户或 Agent 已经写下的拍摄时间、成对经纬度、描述和标签不会被流水线覆盖。无偏移的 EXIF 时间按 UTC。不写地点文本。
+- 首次插入照片的同一事务入队。PATCH 只在描述或标签真正变化时入队。`failed` 经 `POST /photos/:id/retry` 再入队。再次 `complete` 不把已失败且已有历史任务的照片重新入队。`completing` 不入队。
+- 领取使用 `SKIP LOCKED`。可重试失败最多 5 次，退避 30、60、120、240 秒。维度不符和拒绝类错误立即失败。租约回收不把已有业务码改成 `interrupted`；`interrupted` 只出现在回收日志。
+- 用户或 Agent 已经写下的拍摄时间、成对经纬度、描述和标签不会被流水线覆盖。无偏移的 EXIF 时间按 UTC。不写地点文本。视觉描述的控制字符允许集与 PATCH 相同；超长描述由视觉截到 4000 个 UTF-16 码元，PATCH 仍拒绝超长。
 - 缩略图键是 `owners/{userId}/photos/{photoId}/thumb`，JPEG，长边 512，质量 80。
 - 视觉接收原图 base64。嵌入接收描述和标签拼出的文本；都空时嵌入 `photo`。
 - `EMBED_DIMENSIONS` 必须为 1536。长度校验在领域，DAO 在 SQL 前再挡一次，写入与 `ready` 在同一事务。
-- worker 是独立进程。API 不轮询。测试用 `runOnce` 和网关层假实现，不依赖生产密钥。
+- worker 是独立进程。API 不轮询。测试用 `runOnce` 和网关层假实现，不依赖生产密钥。`NODE_ENV=production` 时，视觉、嵌入或 S3 占位符让 worker 退出；生产环境的 API 在 S3 占位符上同样退出。
 - 删除照片级联删除嵌入和任务。过期上传会话不由这个 worker 清扫。
+- 实现提交把 `sharp` 与 `exifr` 写入领域层边界检查的禁止名单。
 - 不做搜索、共享册、人脸、自动事件和网页。
