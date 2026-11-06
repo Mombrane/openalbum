@@ -22,7 +22,7 @@ export function registerErrorHandler(app: FastifyInstance): void {
         typeof error === "object" && error !== null && "statusCode" in error
           ? Number((error as { statusCode?: unknown }).statusCode)
           : 0;
-      if (statusCode === 400 || statusCode === 415) {
+      if (statusCode === 400 || statusCode === 415 || (statusCode === 413 && code === "FST_ERR_CTP_BODY_TOO_LARGE")) {
         return reply.code(400).send({ error: { code: "validation_error", message: "请求不合法" } });
       }
     }

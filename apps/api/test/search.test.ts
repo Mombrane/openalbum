@@ -348,6 +348,40 @@ serial("JWT 与 API Key 顺序一致，游标不会读出别人的照片", async
   assert.deepEqual(stolen.json().photos.map((photo: { id: string }) => photo.id), [ownOld]);
 });
 
+serial("语义检索用 API Key 只返回当前用户的同向量照片", async () => {
+  await reset();
+  const owner = await registerUser(app, "semantic-key-a@example.com");
+  const other = await registerUser(app, "semantic-key-b@example.com");
+  const key = await createApiKey(app, owner.accessToken);
+  const ownId = "ffffffff-ffff-4fff-8fff-fffffffffff1";
+  const otherId = "ffffffff-ffff-4fff-8fff-fffffffffff2";
+  const vector = deterministicEmbedding("red", 1536);
+  await insertSearchPhoto(pool, {
+    id: ownId,
+    ownerId: owner.userId,
+    description: "red",
+    createdAt: new Date("2030-03-02T00:00:00.000Z"),
+    embedding: vector,
+  });
+  await insertSearchPhoto(pool, {
+    id: otherId,
+    ownerId: other.userId,
+    description: "red",
+    createdAt: new Date("2030-03-03T00:00:00.000Z"),
+    embedding: vector,
+  });
+  const found = await app.inject({
+    method: "POST",
+    url: "/photos/search",
+    headers: bearer(key),
+    payload: { mode: "semantic", q: "red" },
+  });
+  assert.equal(found.statusCode, 200);
+  const ids = found.json().photos.map((photo: { id: string }) => photo.id);
+  assert.deepEqual(ids, [ownId]);
+  assert.equal(ids.includes(otherId), false);
+});
+
 serial("关键词结果带签名 URL，列表元素没有 score", async () => {
   await reset();
   const owner = await registerUser(app, "signed@example.com");

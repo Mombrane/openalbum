@@ -140,3 +140,36 @@ serial("未注入嵌入时关键词仍可返回空页，语义为 503", async ()
   const health = await app.inject({ method: "GET", url: "/health" });
   assert.equal(health.statusCode, 200);
 });
+
+const VALIDATION_ERROR = { error: { code: "validation_error", message: "请求不合法" } };
+
+serial("超过 16 KiB 的 JSON 检索正文返回 400，而不是 500 或照片列表", async () => {
+  await pool.query("TRUNCATE TABLE users CASCADE");
+  const token = await register("search-oversize@example.com");
+  const json = '{"mode":"keyword","q":"hi"}';
+  const body = json + " ".repeat(16 * 1024 - json.length + 1);
+  assert.ok(Buffer.byteLength(body) > 16 * 1024);
+  const response = await app.inject({
+    method: "POST",
+    url: "/photos/search",
+    headers: { ...auth(token), "content-type": "application/json" },
+    payload: body,
+  });
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.json(), VALIDATION_ERROR);
+  assert.equal(Object.hasOwn(response.json(), "photos"), false);
+});
+
+serial("octet-stream 检索正文返回 400，而不是 200", async () => {
+  await pool.query("TRUNCATE TABLE users CASCADE");
+  const token = await register("search-octet@example.com");
+  const response = await app.inject({
+    method: "POST",
+    url: "/photos/search",
+    headers: { ...auth(token), "content-type": "application/octet-stream" },
+    payload: Buffer.from("not-json"),
+  });
+  assert.equal(response.statusCode, 400);
+  assert.notEqual(response.statusCode, 200);
+  assert.deepEqual(response.json(), VALIDATION_ERROR);
+});

@@ -1,5 +1,3 @@
-import { Readable } from "node:stream";
-import { buffer as readStreamToBuffer } from "node:stream/consumers";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   abortUpload,
@@ -65,6 +63,7 @@ const patchBodySchema = {
 
 const PART_NUMBER_RE = /^[1-9][0-9]{0,4}$/;
 const PART_BODY_LIMIT = 33_554_432;
+const SEARCH_BODY_LIMIT = 16 * 1024;
 
 function toLibraryActor(principal: Principal): LibraryActor {
   return {
@@ -148,14 +147,11 @@ export function registerPhotoRoutes(
   app.post(
     "/photos/search",
     {
+      bodyLimit: SEARCH_BODY_LIMIT,
       onRequest: async (request, reply) => {
         const principal = await requirePrincipal(identity, authorizationHeader(request.headers.authorization));
         if (!isPrincipal(principal)) return sendAuthError(reply, principal);
         principals.set(request, principal);
-      },
-      preParsing: async (_request, _reply, payload) => {
-        const bodyCopy = await readStreamToBuffer(payload);
-        return Readable.from([bodyCopy]);
       },
     },
     async (request, reply) => {
@@ -167,7 +163,12 @@ export function registerPhotoRoutes(
         return reply.code(400).send({ error: { code: "validation_error", message: "请求不合法" } });
       }
       const parsed = request.body;
-      if (parsed === null || parsed === undefined || typeof parsed !== "object" || Array.isArray(parsed)) {
+      if (
+        parsed === null ||
+        parsed === undefined ||
+        typeof parsed !== "object" ||
+        Object.getPrototypeOf(parsed) !== Object.prototype
+      ) {
         return reply.code(400).send({ error: { code: "validation_error", message: "请求不合法" } });
       }
       const result = await searchPhotos(search, toLibraryActor(principal), parsed as Record<string, unknown>, clock.now());
