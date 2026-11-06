@@ -1,6 +1,6 @@
 # Phase 3 — 处理流水线
 
-**状态：** in_progress
+**状态：** done
 **依赖：** Phase 2  
 **设计：** [`docs/superpowers/specs/2026-11-06-openalbum-phase3-processing-pipeline-design.md`](../../docs/superpowers/specs/2026-11-06-openalbum-phase3-processing-pipeline-design.md)
 
@@ -32,12 +32,12 @@ DAO 负责任务与嵌入的 SQL。网关负责 EXIF 之外的外部 I/O；EXIF 
 
 ## 验收
 
-- [ ] 上传后的照片最终变为 `ready` 或在外部 API 失败时变为 `failed`，原图仍可访问
-- [ ] `ready` 的照片具备缩略图、描述或标签（模型有返回时）、以及一条嵌入
-- [ ] 嵌入维度与配置一致，不匹配时任务失败并可观察错误，而不是写坏向量列
-- [ ] 覆盖描述或标签后能再次嵌入
-- [ ] worker 不向日志打印 API Key、对象存储密钥或口令
-- [ ] 领域层边界检查仍然通过
+- [x] 上传后的照片最终变为 `ready` 或在外部 API 失败时变为 `failed`，原图仍可访问
+- [x] `ready` 的照片具备缩略图、描述或标签（模型有返回时）、以及一条嵌入
+- [x] 嵌入维度与配置一致，不匹配时任务失败并可观察错误，而不是写坏向量列
+- [x] 覆盖描述或标签后能再次嵌入
+- [x] worker 不向日志打印 API Key、对象存储密钥或口令
+- [x] 领域层边界检查仍然通过
 
 ## 依赖
 

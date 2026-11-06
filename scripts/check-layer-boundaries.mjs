@@ -41,6 +41,8 @@ const domainPackages = new Set([
   "minio",
   "aws-sdk",
   "undici",
+  "sharp",
+  "exifr",
   "http",
   "https",
   "net",

@@ -85,10 +85,11 @@ test("env 示例声明超时、1536 维与轮询默认值", async () => {
   assert.match(readme, /不读取 `S3_PUBLIC_BASE_URL`/);
 });
 
-test("阶段 3 已开工且验收仍未勾选", async () => {
+test("阶段 3 验收完成且状态为 done", async () => {
   const phase = await readFile(new URL("../../../specs/phases/03-processing-pipeline.md", import.meta.url), "utf8");
-  assert.match(phase, /\*\*状态：\*\* in_progress/);
-  assert.equal(phase.includes("- [x]"), false);
+  assert.match(phase, /\*\*状态：\*\* done/);
+  const checked = phase.match(/- \[x\]/g) ?? [];
+  assert.ok(checked.length >= 6, "阶段 3 验收项应全部勾选");
   const spec = await readFile(new URL("../../../specs/SPEC.md", import.meta.url), "utf8");
-  assert.match(spec, /\| 3 \|.*\| in_progress \|/);
+  assert.match(spec, /\| 3 \|.*\| done \|/);
 });
