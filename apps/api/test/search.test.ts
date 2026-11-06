@@ -3,7 +3,7 @@ import test from "node:test";
 import pg from "pg";
 import { buildApp } from "../src/app.js";
 import { formatVectorLiteral } from "../src/dao/vector-literal.js";
-import { encodeKeywordCursor } from "../src/domain/search/index.js";
+import { decodeSemanticCursor, encodeKeywordCursor } from "../src/domain/search/index.js";
 import type { EmbedGateway } from "../src/domain/library/ports.js";
 import { createFakeEmbedGateway } from "../src/gateways/embed/fake-embed.js";
 import { deterministicEmbedding } from "../src/gateways/embed/deterministic.js";
@@ -382,6 +382,8 @@ serial("有向量的非 ready 照片不是语义命中，省略 status 与 ready
   const owner = await registerUser(app, "semantic-status@example.com");
   const readyId = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1";
   const failedId = "cccccccc-cccc-4ccc-8ccc-ccccccccccc2";
+  const processingId = "cccccccc-cccc-4ccc-8ccc-ccccccccccc3";
+  const readyNoEmbedId = "cccccccc-cccc-4ccc-8ccc-ccccccccccc4";
   const vector = deterministicEmbedding("red", 1536);
   await insertSearchPhoto(pool, {
     id: readyId,
@@ -398,10 +400,24 @@ serial("有向量的非 ready 照片不是语义命中，省略 status 与 ready
     createdAt: START,
     embedding: vector,
   });
-  const texts: string[] = [];
+  await insertSearchPhoto(pool, {
+    id: processingId,
+    ownerId: owner.userId,
+    description: "red",
+    status: "processing",
+    createdAt: START,
+    embedding: vector,
+  });
+  await insertSearchPhoto(pool, {
+    id: readyNoEmbedId,
+    ownerId: owner.userId,
+    description: "red",
+    createdAt: START,
+  });
+  const embedInputs: Array<{ model: string; text: string }> = [];
   const recording: EmbedGateway = {
     async embed(input) {
-      texts.push(input.text);
+      embedInputs.push({ model: input.model, text: input.text });
       return { ok: true, values: deterministicEmbedding(input.text, 1536) };
     },
   };
@@ -420,17 +436,20 @@ serial("有向量的非 ready 照片不是语义命中，省略 status 与 ready
       method: "POST",
       url: "/photos/search",
       headers: bearer(owner.accessToken),
-      payload: { mode: "semantic", q: "red", status: "ready" },
+      payload: { mode: "semantic", q: "  red  ", status: "ready" },
     });
     const omitted = await semanticApp.inject({
       method: "POST",
       url: "/photos/search",
       headers: bearer(owner.accessToken),
-      payload: { mode: "semantic", q: "red" },
+      payload: { mode: "semantic", q: "  red  " },
     });
     assert.deepEqual(ready.json().photos.map((photo: { id: string }) => photo.id), [readyId]);
     assert.deepEqual(omitted.json().photos.map((photo: { id: string }) => photo.id), [readyId]);
-    assert.deepEqual(texts, ["red", "red"]);
+    assert.deepEqual(embedInputs, [
+      { model: "fake", text: "red" },
+      { model: "fake", text: "red" },
+    ]);
   } finally {
     await semanticApp.close();
   }
@@ -441,7 +460,7 @@ serial("假嵌入按同一文本稳定排序并分页，关键词游标不能用
   const owner = await registerUser(app, "semantic-order@example.com");
   const redA = "dddddddd-dddd-4ddd-8ddd-ddddddddddd1";
   const redB = "dddddddd-dddd-4ddd-8ddd-ddddddddddd2";
-  const blue = "dddddddd-dddd-4ddd-8ddd-ddddddddddd3";
+  const blue = "dddddddd-dddd-4ddd-8ddd-ddddddddddd0";
   const redVector = deterministicEmbedding("red", 1536);
   const blueVector = deterministicEmbedding("blue", 1536);
   await insertSearchPhoto(pool, { id: redB, ownerId: owner.userId, description: "later", createdAt: START, embedding: redVector, model: "m1" });
@@ -489,35 +508,74 @@ serial("假嵌入按同一文本稳定排序并分页，关键词游标不能用
       [owner.userId, formatVectorLiteral(redVector, 1536)],
     );
     const body = first.json();
+    const scoreById = new Map(expected.rows.map((row) => [String(row.id), String(row.score_text)]));
     assert.deepEqual(
       body.photos.map((photo: { id: string }) => photo.id),
       expected.rows.map((row) => String(row.id)),
     );
+    for (const photo of body.photos as Array<{ id: string; score: number }>) {
+      const scoreText = scoreById.get(photo.id);
+      assert.ok(scoreText !== undefined);
+      assert.equal(photo.score, Number(scoreText));
+    }
     assert.deepEqual(
       second.json().photos.map((photo: { id: string; score: number }) => [photo.id, photo.score]),
       body.photos.map((photo: { id: string; score: number }) => [photo.id, photo.score]),
     );
-    assert.equal(body.photos[0].score, 1);
-    assert.equal(body.photos[1].score, 1);
     assert.equal(body.photos[0].id < body.photos[1].id, true);
     assert.equal(body.photos[2].id, blue);
-    assert.equal(body.photos[2].score < 1, true);
-    const page = await semanticApp.inject({
-      method: "POST",
-      url: "/photos/search",
-      headers: bearer(owner.accessToken),
-      payload: { mode: "semantic", q: "red", limit: 1 },
-    });
-    assert.equal(page.json().photos.length, 1);
-    assert.equal(page.json().photos[0].id, body.photos[0].id);
-    const next = await semanticApp.inject({
-      method: "POST",
-      url: "/photos/search",
-      headers: bearer(owner.accessToken),
-      payload: { mode: "semantic", q: "red", limit: 1, cursor: page.json().nextCursor },
-    });
-    assert.equal(next.json().photos[0].id, body.photos[1].id);
-    assert.notEqual(next.json().photos[0].id, body.photos[0].id);
+    const blueScoreText = scoreById.get(blue);
+    assert.ok(blueScoreText !== undefined);
+    assert.equal((body.photos[2] as { score: number }).score, Number(blueScoreText));
+
+    let cursor: string | undefined;
+    const fetched: string[] = [];
+    const scoreSixDecimal = /^-?(?:0|[1-9]\d*)\.\d{6}$/;
+    for (let pageIndex = 0; pageIndex < 3; pageIndex += 1) {
+      const page = await semanticApp.inject({
+        method: "POST",
+        url: "/photos/search",
+        headers: bearer(owner.accessToken),
+        payload: {
+          mode: "semantic",
+          q: "red",
+          limit: 1,
+          ...(cursor !== undefined ? { cursor } : {}),
+        },
+      });
+      assert.equal(page.statusCode, 200);
+      const pageBody = page.json();
+      assert.equal(pageBody.photos.length, 1);
+      const id = pageBody.photos[0].id as string;
+      fetched.push(id);
+      assert.equal(id, String(expected.rows[pageIndex]?.id));
+      const rowScoreText = String(expected.rows[pageIndex]?.score_text);
+      assert.equal((pageBody.photos[0] as { score: number }).score, Number(rowScoreText));
+      const nextCursor = pageBody.nextCursor as string | null;
+      if (pageIndex === 2) {
+        assert.equal(id, blue);
+        assert.equal(nextCursor, null);
+        break;
+      }
+      assert.ok(nextCursor);
+      const decoded = decodeSemanticCursor(nextCursor);
+      assert.ok(decoded);
+      assert.equal(decoded.id, id);
+      assert.equal(decoded.scoreText, rowScoreText);
+      assert.equal(scoreSixDecimal.test(decoded.scoreText), true);
+
+      if (pageIndex === 1) {
+        const secondRedSqlText = String(expected.rows[1]?.score_text);
+        assert.equal(decoded.scoreText, secondRedSqlText);
+        const jsFixed = Number((body.photos[1] as { score: number }).score).toFixed(6);
+        if (jsFixed !== secondRedSqlText) {
+          assert.notEqual(decoded.scoreText, jsFixed);
+        }
+      }
+
+      cursor = nextCursor;
+    }
+    assert.deepEqual(fetched, [redA, redB, blue]);
     const keywordCursor = encodeKeywordCursor(START, redA);
     const rejected = await semanticApp.inject({
       method: "POST",
@@ -589,6 +647,7 @@ serial("嵌入失败不查询，空查询与超长查询在调用前拒绝", asy
       headers: bearer(owner.accessToken),
       payload: { mode: "semantic", q: "   " },
     });
+    assert.equal(empty.statusCode, 400);
     assert.deepEqual(empty.json(), { error: { code: "empty_query", message: "查询为空" } });
     const missing = await app.inject({
       method: "POST",
@@ -598,13 +657,36 @@ serial("嵌入失败不查询，空查询与超长查询在调用前拒绝", asy
     });
     assert.equal(missing.statusCode, 400);
     assert.deepEqual(missing.json(), { error: { code: "validation_error", message: "请求不合法" } });
-    const tooLong = await app.inject({
-      method: "POST",
-      url: "/photos/search",
-      headers: bearer(owner.accessToken),
-      payload: { mode: "keyword", q: "a".repeat(501) },
+    let embedCalls = 0;
+    const countingEmbed: EmbedGateway = {
+      async embed(input) {
+        embedCalls += 1;
+        return { ok: true, values: deterministicEmbedding(input.text, 1536) };
+      },
+    };
+    const semanticValidateApp = await buildApp({
+      logger: false,
+      config: appConfig,
+      clock,
+      pool,
+      storage,
+      signedUrlTtlSeconds: 900,
+      embed: countingEmbed,
+      embedModel: "fake",
     });
-    assert.deepEqual(tooLong.json(), { error: { code: "query_too_long", message: "查询过长" } });
+    try {
+      const tooLong = await semanticValidateApp.inject({
+        method: "POST",
+        url: "/photos/search",
+        headers: bearer(owner.accessToken),
+        payload: { mode: "semantic", q: "a".repeat(501) },
+      });
+      assert.equal(tooLong.statusCode, 400);
+      assert.deepEqual(tooLong.json(), { error: { code: "query_too_long", message: "查询过长" } });
+      assert.equal(embedCalls, 0);
+    } finally {
+      await semanticValidateApp.close();
+    }
     const anonymous = await app.inject({
       method: "POST",
       url: "/photos/search",
