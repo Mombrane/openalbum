@@ -64,3 +64,14 @@ function parseTtl(value: string | undefined): number {
   if (seconds > MAX_TTL_SECONDS) throw new Error("S3_SIGNED_URL_TTL 超过 7 天");
   return seconds;
 }
+
+export function productionStoragePlaceholderMessage(env: NodeJS.ProcessEnv): string | null {
+  if ((env.NODE_ENV?.trim() ?? "") !== "production") return null;
+  const bucket = env.S3_BUCKET?.trim() ?? "";
+  const accessKeyId = env.S3_ACCESS_KEY_ID?.trim() ?? "";
+  const secretAccessKey = env.S3_SECRET_ACCESS_KEY?.trim() ?? "";
+  if (bucket === "YOUR_BUCKET_NAME" || accessKeyId === "YOUR_ACCESS_KEY" || secretAccessKey === "YOUR_SECRET_KEY") {
+    return "对象存储配置仍是占位符";
+  }
+  return null;
+}
