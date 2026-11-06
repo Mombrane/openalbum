@@ -11,6 +11,8 @@ export const LIBRARY_MESSAGES = {
   storageError: "对象存储不可用",
   uploadIncomplete: "上传未能完成",
   deleteIncomplete: "删除未能完成",
+  notFailed: "照片不在失败状态",
+  patchIncomplete: "修改未能完成",
 } as const;
 
 export type LibraryError = {
@@ -23,7 +25,8 @@ export type LibraryError = {
     | "upload_completing"
     | "upload_completed"
     | "storage_error"
-    | "internal_error";
+    | "internal_error"
+    | "not_failed";
   message: string;
 };
 
@@ -68,4 +71,12 @@ export function unsupportedType(): LibraryError {
 
 export function invalidSize(): LibraryError {
   return { ok: false, status: 400, code: "validation_error", message: LIBRARY_MESSAGES.invalidSize };
+}
+
+export function notFailed(): LibraryError {
+  return { ok: false, status: 409, code: "not_failed", message: LIBRARY_MESSAGES.notFailed };
+}
+
+export function patchIncomplete(): LibraryError {
+  return { ok: false, status: 500, code: "internal_error", message: LIBRARY_MESSAGES.patchIncomplete };
 }

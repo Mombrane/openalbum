@@ -24,24 +24,27 @@ async function readAllTypeScriptSources(dir: string): Promise<string> {
 
 test("个人库 domain 与 adapters 源码边界", async () => {
   const domainSource = await readAllTypeScriptSources(path.join(apiRoot, "src/domain/library"));
-  const adaptersSource = await readAllTypeScriptSources(path.join(apiRoot, "src/adapters/library"));
+  const libraryAdapters = await readAllTypeScriptSources(path.join(apiRoot, "src/adapters/library"));
+  const pipelineAdapters = await readAllTypeScriptSources(path.join(apiRoot, "src/adapters/pipeline"));
+  const markers = ["@aws-sdk/", "aws-sdk", "minio", "sharp", "exifr", "undici"] as const;
 
-  for (const marker of ["@aws-sdk/", "aws-sdk", "minio"] as const) {
-    assert.equal(domainSource.includes(marker), false, `domain/library 不得出现对象存储 SDK 包名 ${marker}`);
-    assert.equal(adaptersSource.includes(marker), false, `adapters/library 不得出现对象存储 SDK 包名 ${marker}`);
+  for (const marker of markers) {
+    assert.equal(domainSource.includes(marker), false, `domain/library 不得出现 ${marker}`);
+    assert.equal(libraryAdapters.includes(marker), false, `adapters/library 不得出现 ${marker}`);
+    assert.equal(pipelineAdapters.includes(marker), false, `adapters/pipeline 不得出现 ${marker}`);
   }
 
-  assert.equal(
-    /Date\.now|new Date\(\)/.test(domainSource),
-    false,
-    "domain/library 不得直接读取系统时钟",
-  );
+  assert.equal(/Date\.now|new Date\(\)/.test(domainSource), false, "domain/library 不得直接读取系统时钟");
   assert.equal(domainSource.includes("domain/identity"), false, "domain/library 不得引用 identity 包");
-  assert.equal(/\/dao/.test(adaptersSource), false, "adapters/library 不得 import dao");
-  assert.equal(/\/gateways/.test(adaptersSource), false, "adapters/library 不得 import gateways");
+  for (const source of [libraryAdapters, pipelineAdapters]) {
+    assert.equal(/\/dao/.test(source), false, "adapters 不得 import dao");
+    assert.equal(/\/gateways/.test(source), false, "adapters 不得 import gateways");
+  }
 
   const boundaryScript = await readFile(boundaryScriptPath, "utf8");
   assert.equal(boundaryScript.includes('"aws-sdk"'), true);
   assert.equal(boundaryScript.includes('"minio"'), true);
   assert.equal(boundaryScript.includes("@aws-sdk/"), true);
+  assert.equal(boundaryScript.includes('"sharp"'), true);
+  assert.equal(boundaryScript.includes('"exifr"'), true);
 });

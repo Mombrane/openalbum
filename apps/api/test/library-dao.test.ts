@@ -171,9 +171,15 @@ serial("insertPhotoAndComplete 写入 processing 并完成会话，重复返回 
       sourceUserId: ownerId,
       sourceKeyId: null,
       now,
+      jobId: "55555555-5555-4555-8555-555555555551",
     }),
     "inserted",
   );
+  const queued = await pool.query(
+    `SELECT count(*)::int AS n FROM jobs WHERE photo_id = $1 AND type = 'process_photo'`,
+    [photoId],
+  );
+  assert.equal(queued.rows[0]?.n, 1);
   const photo = await pool.query(
     `SELECT status, tags, thumb_key, error_message, source_user_id, source_key_id
      FROM photos WHERE id = $1`,
@@ -198,6 +204,7 @@ serial("insertPhotoAndComplete 写入 processing 并完成会话，重复返回 
       sourceUserId: ownerId,
       sourceKeyId: null,
       now,
+      jobId: "55555555-5555-4555-8555-555555555552",
     }),
     "exists",
   );

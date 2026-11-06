@@ -155,7 +155,15 @@ export async function completeUpload(
       sourceUserId: actor.userId,
       sourceKeyId: actor.credentialKind === "api_key" ? actor.credentialId : null,
       now,
+      jobId: deps.ids.nextId(),
     });
+    if (inserted === "exists") {
+      await deps.photos.ensureProcessPhoto({
+        photoId: current.photoId,
+        jobId: deps.ids.nextId(),
+        now,
+      });
+    }
     const photo = await deps.photos.findById(current.photoId);
     if (!photo || !isVisiblePhoto(photo, actor.userId)) return notFound();
     let photoResponse: PhotoResponse;

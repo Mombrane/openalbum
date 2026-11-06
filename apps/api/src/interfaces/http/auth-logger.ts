@@ -12,6 +12,11 @@ const REDACT = {
     "originalUrl",
     "photo.originalUrl",
     "photos[*].originalUrl",
+    "thumbUrl",
+    "photo.thumbUrl",
+    "photos[*].thumbUrl",
+    "dataBase64",
+    "embedding",
   ],
   censor: "[Redacted]",
 };

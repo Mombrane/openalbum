@@ -21,3 +21,8 @@ export { createPasswordHasher } from "./auth/password-hasher.js";
 export { createSecretGenerator } from "./auth/secret-generator.js";
 export { SystemClock } from "./auth/system-clock.js";
 export { createTokenHasher } from "./auth/token-hasher.js";
+export { createFakeExifReader, createExifrReader } from "./exif/index.js";
+export { createFakeThumbnailEncoder, createSharpThumbnailEncoder } from "./thumbnail/index.js";
+export { createFakeVisionGateway, createHttpVisionGateway } from "./vision/index.js";
+export { createFakeEmbedGateway, createHttpEmbedGateway, loadPipelineConfig, EMBED_VECTOR_DIMENSIONS } from "./embed/index.js";
+export { productionStoragePlaceholderMessage } from "./storage/config.js";

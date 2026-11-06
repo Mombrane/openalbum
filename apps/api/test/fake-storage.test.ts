@@ -46,3 +46,24 @@ test("complete 栅栏在进入时已经能被观察，失败删除仍记录键",
   });
   assert.deepEqual(storage.deletedKeys, ["k"]);
 });
+
+test("getObject 读到完成后的原图，putObject 按键覆盖", async () => {
+  const storage = createFakeObjectStorage();
+  const upload = await storage.createMultipartUpload({ key: "owners/u/photos/p/original", contentType: "image/jpeg" });
+  await storage.uploadPart({ key: "owners/u/photos/p/original", uploadId: upload.uploadId, partNumber: 1, body: Buffer.from("abc") });
+  await storage.completeMultipartUpload({
+    key: "owners/u/photos/p/original",
+    uploadId: upload.uploadId,
+    parts: [{ partNumber: 1, etag: "ignored" }],
+  });
+  const original = await storage.getObject({ key: "owners/u/photos/p/original" });
+  assert.equal(original?.byteSize, 3);
+  assert.equal(original?.body.toString(), "abc");
+  assert.equal(await storage.getObject({ key: "missing" }), null);
+  await storage.putObject({ key: "owners/u/photos/p/thumb", contentType: "image/jpeg", body: Buffer.from("jpeg") });
+  const thumb = await storage.getObject({ key: "owners/u/photos/p/thumb" });
+  assert.equal(thumb?.body.toString(), "jpeg");
+  assert.equal(storage.putObjectCalls, 1);
+  storage.failGetObject = true;
+  await assert.rejects(() => storage.getObject({ key: "owners/u/photos/p/thumb" }), (error: unknown) => (error as { name?: string }).name === "InternalError");
+});
