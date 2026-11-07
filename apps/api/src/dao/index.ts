@@ -9,5 +9,6 @@ export { createPhotoRepository } from "./photo-repository.js";
 export { createPipelineStore } from "./pipeline-store.js";
 export { formatVectorLiteral } from "./vector-literal.js";
 export { createRefreshTokenRepository } from "./refresh-token-repository.js";
+export { createSearchRepository } from "./search-repository.js";
 export { createUploadSessionRepository } from "./upload-session-repository.js";
 export { createUserRepository } from "./user-repository.js";

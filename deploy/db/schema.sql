@@ -106,7 +106,9 @@ CREATE TABLE IF NOT EXISTS photo_embeddings (
   model       TEXT NOT NULL,
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
--- 数据量上来之后再加 IVFFlat / HNSW（Phase 4）。
+-- 本阶段不建 ANN 索引。切换条件见 docs/superpowers/specs/2026-11-06-openalbum-phase4-search-design.md 第 7 节。
+-- 全表 photo_embeddings 行数达到 100000，或语义检索数据库侧 p95 超过 200 毫秒且该用户 ready 照片达到 10000 时，
+-- 才允许后续提交使用 HNSW（vector_cosine_ops，m = 16，ef_construction = 64）。在那之前禁止创建该索引。
 
 -- 共享册
 CREATE TABLE IF NOT EXISTS albums (
