@@ -3,7 +3,7 @@ import type { Photo } from "../domain/library/model.js";
 import { parsePhotoStatus } from "../domain/library/pipeline.js";
 import type { ActiveJob, PhotoMutation, PhotoRepository } from "../domain/library/ports.js";
 
-const PHOTO_COLUMNS = `id, owner_id, object_key, thumb_key, content_type, byte_size,
+export const PHOTO_COLUMNS = `id, owner_id, object_key, thumb_key, content_type, byte_size,
 taken_at, location_text, latitude, longitude, description, tags,
 status, source_user_id, source_key_id, error_message, created_at, updated_at`;
 

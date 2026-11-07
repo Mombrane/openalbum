@@ -9,13 +9,14 @@ import {
   registerPhotoRoutes,
 } from "./interfaces/index.js";
 import type { Clock } from "./domain/identity/ports.js";
-import type { ObjectStorage } from "./domain/library/ports.js";
+import type { EmbedGateway, ObjectStorage } from "./domain/library/ports.js";
 import { loadAuthConfig, type AuthConfig } from "./gateways/auth/config.js";
 import { SystemClock } from "./gateways/auth/system-clock.js";
 import { createFakeObjectStorage } from "./gateways/storage/fake-object-storage.js";
 import { authLoggerOptions } from "./interfaces/http/auth-logger.js";
 import { authLogFromFastify, createIdentityDeps } from "./wire-identity.js";
 import { createLibraryDeps, libraryLogFromFastify } from "./wire-library.js";
+import { createSearchDeps, searchLogFromFastify } from "./wire-search.js";
 
 export type BuildAppOptions = {
   logger?: boolean | FastifyServerOptions["logger"];
@@ -24,6 +25,8 @@ export type BuildAppOptions = {
   pool?: pg.Pool;
   storage?: ObjectStorage;
   signedUrlTtlSeconds?: number;
+  embed?: EmbedGateway;
+  embedModel?: string;
 };
 
 /**
@@ -49,12 +52,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     signedUrlTtlSeconds,
     log: libraryLogFromFastify(app.log),
   });
+  const search = createSearchDeps({
+    pool,
+    library,
+    embed: options.embed ?? null,
+    embedModel: options.embedModel ?? null,
+    log: searchLogFromFastify(app.log),
+  });
   registerErrorHandler(app);
   registerHealthRoute(app);
   registerAuthRoutes(app, identity);
   registerMeRoute(app, identity);
   registerApiKeyRoutes(app, identity);
-  registerPhotoRoutes(app, identity, library, clock);
+  registerPhotoRoutes(app, identity, library, clock, search);
   app.addHook("onClose", async () => {
     if (ownsPool) await pool.end();
   });

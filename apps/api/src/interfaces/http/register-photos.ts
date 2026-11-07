@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   abortUpload,
   completeUpload,
@@ -10,9 +10,11 @@ import {
   patchPhoto,
   requirePrincipal,
   retryPhoto,
+  searchPhotos,
   uploadPart,
   type IdentityDeps,
   type LibraryDeps,
+  type SearchDeps,
 } from "../../adapters/index.js";
 import type { LibraryActor } from "../../domain/library/model.js";
 import type { Principal } from "../../domain/identity/model.js";
@@ -22,7 +24,10 @@ import { normalizeMetadataPatch } from "../../domain/library/metadata-patch.js";
 import { LIBRARY_MESSAGES } from "../../adapters/library/messages.js";
 import { sendAuthError, sendInvalid } from "./send-auth-error.js";
 import { sendLibraryResult } from "./send-library-error.js";
+import { sendSearchResult } from "./send-search-result.js";
 import { parseUuid } from "./validation.js";
+
+const principals = new WeakMap<FastifyRequest, Principal>();
 
 const uploadBodySchema = {
   type: "object",
@@ -58,6 +63,7 @@ const patchBodySchema = {
 
 const PART_NUMBER_RE = /^[1-9][0-9]{0,4}$/;
 const PART_BODY_LIMIT = 33_554_432;
+const SEARCH_BODY_LIMIT = 16 * 1024;
 
 function toLibraryActor(principal: Principal): LibraryActor {
   return {
@@ -128,12 +134,45 @@ export function registerPhotoRoutes(
   identity: IdentityDeps,
   library: LibraryDeps,
   clock: Clock,
+  search: SearchDeps,
 ): void {
   app.addContentTypeParser(
     "application/octet-stream",
     { parseAs: "buffer", bodyLimit: PART_BODY_LIMIT },
     (_request, body, done) => {
       done(null, body);
+    },
+  );
+
+  app.post(
+    "/photos/search",
+    {
+      bodyLimit: SEARCH_BODY_LIMIT,
+      onRequest: async (request, reply) => {
+        const principal = await requirePrincipal(identity, authorizationHeader(request.headers.authorization));
+        if (!isPrincipal(principal)) return sendAuthError(reply, principal);
+        principals.set(request, principal);
+      },
+    },
+    async (request, reply) => {
+      if (reply.sent) return;
+      const principal = principals.get(request);
+      if (!principal) return reply.code(401).send({ error: { code: "unauthorized", message: "未授权" } });
+      const query = request.query;
+      if (query && typeof query === "object" && Object.keys(query as object).length > 0) {
+        return reply.code(400).send({ error: { code: "validation_error", message: "请求不合法" } });
+      }
+      const parsed = request.body;
+      if (
+        parsed === null ||
+        parsed === undefined ||
+        typeof parsed !== "object" ||
+        Object.getPrototypeOf(parsed) !== Object.prototype
+      ) {
+        return reply.code(400).send({ error: { code: "validation_error", message: "请求不合法" } });
+      }
+      const result = await searchPhotos(search, toLibraryActor(principal), parsed as Record<string, unknown>, clock.now());
+      return sendSearchResult(reply, result);
     },
   );
 

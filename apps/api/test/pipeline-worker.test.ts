@@ -40,7 +40,9 @@ test("worker 源码不监听端口，生产入口检查对象存储占位符", a
   assert.equal(worker.includes("60000"), true);
   assert.equal(api.includes("对象存储配置仍是占位符"), true);
   assert.equal(api.includes("VISION_"), false);
-  assert.equal(api.includes("EMBED_"), false);
+  assert.equal(api.includes("PIPELINE_"), false);
+  assert.equal(api.includes("loadApiEmbedConfig"), true);
+  assert.equal(api.includes("嵌入配置仍是占位符，语义检索不可用"), true);
   assert.match(unit, /dist\/worker\.js/);
   assert.equal(unit.includes("PORT"), false);
 });
