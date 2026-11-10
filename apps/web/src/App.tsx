@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
-import { NETWORK_MESSAGE, visibleMessage } from "./copy";
+import { AccountPage } from "./pages/account";
 import { AlbumsBlocked } from "./pages/albums-blocked";
+import { KeysPage } from "./pages/keys";
 import { LoginPage } from "./pages/login";
 import { NotFound } from "./pages/not-found";
 import { RegisterPage } from "./pages/register";
@@ -8,6 +9,7 @@ import { LibraryPage } from "./pages/library";
 import { UploadPage } from "./pages/upload";
 import { SearchPage } from "./pages/search";
 import { PhotoPage } from "./pages/photo";
+import { performLogout } from "./pages/logout";
 import {
   isProtectedRoute,
   matchPath,
@@ -61,23 +63,10 @@ export function App() {
 
   const handleLogout = async () => {
     setShellNotice(null);
-    const result = await session.logout();
-    if (result.ok) {
-      navigate("/login", "replace");
-      return;
+    const result = await performLogout(navigate);
+    if (!result.ok) {
+      setShellNotice(result.notice);
     }
-    if (result.kind === "network") {
-      setShellNotice(NETWORK_MESSAGE);
-      return;
-    }
-    setShellNotice(
-      visibleMessage({
-        status: result.status,
-        code: result.code,
-        serverMessage: result.serverMessage,
-        audience: "general",
-      }),
-    );
   };
 
   if (!loggedIn && isProtectedRoute(route)) {
@@ -200,20 +189,9 @@ function renderRoute(
     case "search":
       return <SearchPage />;
     case "keys":
-      return (
-        <section className="page-block">
-          <h1>API Key</h1>
-          <p className="page-hint">密钥管理将在后续任务接入。</p>
-          <code className="key-prefix">oalk_demo_prefix_only</code>
-        </section>
-      );
+      return <KeysPage onNavigate={onNavigate} />;
     case "account":
-      return (
-        <section className="page-block">
-          <h1>账户</h1>
-          <p className="page-hint">账户详情将在后续任务完善。</p>
-        </section>
-      );
+      return <AccountPage onNavigate={onNavigate} />;
     case "albums":
       return <AlbumsBlocked variant="list" onNavigate={onNavigate} />;
     case "albumNew":
