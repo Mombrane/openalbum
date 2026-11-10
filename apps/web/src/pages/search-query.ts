@@ -1,4 +1,7 @@
+import type { SearchRequestBody } from "../api.ts";
 import { validateTags, takenAtFromLocalInput } from "./photo-form";
+
+export type { SearchRequestBody };
 
 export type SearchFormInput = {
   mode: "keyword" | "semantic";
@@ -6,16 +9,6 @@ export type SearchFormInput = {
   tags: string[];
   takenFromLocal: string;
   takenToLocal: string;
-  cursor?: string;
-};
-
-export type SearchRequestBody = {
-  mode: "keyword" | "semantic";
-  q: string;
-  limit: 20;
-  tags?: string[];
-  takenFrom?: string;
-  takenTo?: string;
   cursor?: string;
 };
 
