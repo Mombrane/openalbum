@@ -4,6 +4,7 @@ import { AlbumsBlocked } from "./pages/albums-blocked";
 import { LoginPage } from "./pages/login";
 import { NotFound } from "./pages/not-found";
 import { RegisterPage } from "./pages/register";
+import { LibraryPage } from "./pages/library";
 import { SearchPage } from "./pages/search";
 import {
   isProtectedRoute,
@@ -191,13 +192,7 @@ function renderRoute(
     case "register":
       return <RegisterPage onNavigate={onNavigate} />;
     case "library":
-      return (
-        <section className="page-block">
-          <h1>个人库</h1>
-          <p className="page-hint">照片列表将在后续任务接入。</p>
-          <div className="library-grid" aria-hidden="true" />
-        </section>
-      );
+      return <LibraryPage onNavigate={onNavigate} />;
     case "upload":
       return (
         <section className="page-block">

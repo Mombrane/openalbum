@@ -186,6 +186,44 @@ a {
   min-height: 0;
 }
 
+.photo-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.photo-card-thumb {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+}
+
+.photo-card-status {
+  margin: 0;
+  color: var(--ink);
+  font-family: "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
+  font-size: 0.9rem;
+}
+
+.photo-card-status--placeholder {
+  min-height: 6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.photo-card-meta {
+  margin: 0;
+  color: var(--muted);
+  font-family: "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
+  font-size: 0.85rem;
+}
+
 .key-prefix {
   overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
