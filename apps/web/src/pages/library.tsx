@@ -67,7 +67,7 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
   }, []);
 
   const fetchPage = useCallback(async (cursor: string | null, append: boolean, signal: AbortSignal) => {
-    const result = await api.listPhotos(cursor);
+    const result = await api.listPhotos(cursor, signal);
     if (signal.aborted) return;
     if (result.ok) {
       applyListSuccess(result.data.photos, result.data.nextCursor, append);
@@ -163,8 +163,9 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
       const signal = controller?.signal;
       for (const id of batch.ids) {
         void (async () => {
-          const result = await api.getPhoto(id);
+          const result = await api.getPhoto(id, signal);
           if (signal?.aborted) return;
+          if (!result.ok && result.kind === "aborted") return;
           if (result.ok) {
             replacePhoto(result.data);
           }

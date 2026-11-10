@@ -56,8 +56,9 @@ export type Api = {
   login: (email: string, password: string) => Promise<ApiResult<null>>;
   listPhotos: (
     cursor: string | null,
+    signal?: AbortSignal,
   ) => Promise<ApiResult<{ photos: Photo[]; nextCursor: string | null }>>;
-  getPhoto: (id: string) => Promise<ApiResult<Photo>>;
+  getPhoto: (id: string, signal?: AbortSignal) => Promise<ApiResult<Photo>>;
   createUpload: (
     contentType: string,
     byteSize: number,
@@ -68,7 +69,7 @@ export type Api = {
   patchPhoto: (id: string, body: PhotoPatchBody) => Promise<ApiResult<Photo>>;
   deletePhoto: (id: string) => Promise<ApiResult<null>>;
   retryPhoto: (id: string) => Promise<ApiResult<Photo | null>>;
-  listKeys: () => Promise<ApiResult<{ apiKeys: ApiKey[] }>>;
+  listKeys: (signal?: AbortSignal) => Promise<ApiResult<{ apiKeys: ApiKey[] }>>;
   createKey: (name: string) => Promise<ApiResult<{ apiKey: ApiKey; secret: string }>>;
   revokeKey: (id: string) => Promise<ApiResult<null>>;
   searchPhotos: (
@@ -351,12 +352,12 @@ export function createApi(deps: { session: SessionController; fetch: typeof fetc
     register: (email, password) => runAuth("/api/auth/register", email, password),
     login: (email, password) => runAuth("/api/auth/login", email, password),
 
-    listPhotos: (cursor) => {
+    listPhotos: (cursor, signal) => {
       let url = "/api/photos?limit=50";
       if (cursor !== null) {
         url += `&cursor=${encodeURIComponent(cursor)}`;
       }
-      return runJson(url, { method: "GET" }, true, (body, status) => {
+      return runJson(url, { method: "GET", signal }, true, (body, status) => {
         if (typeof body !== "object" || body === null) return malformedHttp(status);
         const record = body as Record<string, unknown>;
         if (!Array.isArray(record.photos)) return malformedHttp(status);
@@ -376,8 +377,8 @@ export function createApi(deps: { session: SessionController; fetch: typeof fetc
       });
     },
 
-    getPhoto: (id) =>
-      runJson(`/api/photos/${id}`, { method: "GET" }, true, (body, status) => {
+    getPhoto: (id, signal) =>
+      runJson(`/api/photos/${id}`, { method: "GET", signal }, true, (body, status) => {
         const photo = parsePhoto(photoRoot(body));
         if (photo === null) return malformedHttp(status);
         return { ok: true, status, data: photo };
@@ -486,8 +487,8 @@ export function createApi(deps: { session: SessionController; fetch: typeof fetc
         },
       ),
 
-    listKeys: () =>
-      runJson("/api/api-keys", { method: "GET" }, true, (body, status) => {
+    listKeys: (signal) =>
+      runJson("/api/api-keys", { method: "GET", signal }, true, (body, status) => {
         if (typeof body !== "object" || body === null) return malformedHttp(status);
         const rawKeys = (body as Record<string, unknown>).apiKeys;
         if (!Array.isArray(rawKeys)) return malformedHttp(status);

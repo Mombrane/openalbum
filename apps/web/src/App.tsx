@@ -16,6 +16,7 @@ import {
   rememberReturnTo,
   type Route,
 } from "./router";
+import { SESSION_EXPIRED } from "./copy";
 import { session } from "./session";
 import { Shell } from "./shell";
 
@@ -49,6 +50,15 @@ export function App() {
   const loggedIn = snapshot.user !== null;
 
   useLayoutEffect(() => {
+    if (
+      !loggedIn &&
+      snapshot.notice === SESSION_EXPIRED &&
+      pathname !== "/login"
+    ) {
+      window.history.replaceState(null, "", "/login");
+      setPathname("/login");
+      return;
+    }
     if (!loggedIn && isProtectedRoute(route) && pathname !== "/login") {
       rememberReturnTo(pathname);
       window.history.replaceState(null, "", "/login");
@@ -59,7 +69,7 @@ export function App() {
       window.history.replaceState(null, "", "/");
       setPathname("/");
     }
-  }, [loggedIn, pathname, route]);
+  }, [loggedIn, pathname, route, snapshot.notice]);
 
   const handleLogout = async () => {
     setShellNotice(null);

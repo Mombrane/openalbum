@@ -22,15 +22,28 @@ export function usePhotoUrlRefresh(
   setBrokenVisible: (visible: boolean) => void,
 ): { onImageError: () => void } {
   const errorRetriesRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setBrokenVisible(false);
     errorRetriesRef.current = 0;
   }, [displayPhoto.id, setBrokenVisible]);
 
+  useEffect(() => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    return () => {
+      controller.abort();
+    };
+  }, [displayPhoto.id]);
+
   const refreshOnce = (id: string) => {
+    const signal = abortRef.current?.signal;
     void (async () => {
-      const result = await api.getPhoto(id);
+      const result = await api.getPhoto(id, signal);
+      if (signal?.aborted) return;
+      if (!result.ok && result.kind === "aborted") return;
       if (result.ok) {
         setDisplayPhoto(result.data);
         setBrokenVisible(false);

@@ -35,13 +35,15 @@ export function KeysPage({ onNavigate: _onNavigate }: KeysPageProps) {
     };
   }, []);
 
-  const loadKeys = useCallback(async () => {
-    const result = await api.listKeys();
+  const loadKeys = useCallback(async (signal?: AbortSignal) => {
+    const result = await api.listKeys(signal);
+    if (signal?.aborted) return false;
     if (result.ok) {
       setListError(null);
       setKeys(result.data.apiKeys);
       return true;
     }
+    if (!result.ok && result.kind === "aborted") return false;
     if (result.kind === "network") {
       setListError({ kind: "network" });
       return false;
@@ -59,11 +61,13 @@ export function KeysPage({ onNavigate: _onNavigate }: KeysPageProps) {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
     void (async () => {
       setLoading(true);
-      await loadKeys();
-      setLoading(false);
+      await loadKeys(controller.signal);
+      if (!controller.signal.aborted) setLoading(false);
     })();
+    return () => controller.abort();
   }, [loadKeys]);
 
   const listErrorMessage =

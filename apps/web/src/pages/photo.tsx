@@ -118,7 +118,7 @@ export function PhotoPage({ id, onNavigate }: PhotoPageProps) {
 
   const fetchPhoto = useCallback(
     async (signal: AbortSignal) => {
-      const result = await api.getPhoto(id);
+      const result = await api.getPhoto(id, signal);
       if (signal.aborted) return;
       if (result.ok) {
         setLoadError(null);

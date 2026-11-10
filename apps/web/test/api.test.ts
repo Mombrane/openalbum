@@ -334,6 +334,48 @@ test("8. api.ts 源码不含禁止字符串", () => {
   }
 });
 
+test("10. listPhotos 与 getPhoto 将 AbortSignal 传入 fetch，中止后为 aborted", async () => {
+  const session = createMockSession();
+  const hangUntilAbort = (init?: RequestInit): Promise<Response> =>
+    new Promise((_, reject) => {
+      const signal = init?.signal;
+      if (signal === undefined) {
+        reject(new Error("expected AbortSignal"));
+        return;
+      }
+      if (signal.aborted) {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+        return;
+      }
+      signal.addEventListener("abort", () => {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+      });
+    });
+
+  const api = createApi({
+    session,
+    fetch: async (_input, init) => hangUntilAbort(init),
+  });
+
+  const listController = new AbortController();
+  const listPromise = api.listPhotos(null, listController.signal);
+  listController.abort();
+  const listResult = await listPromise;
+  assert.equal(listResult.ok, false);
+  if (!listResult.ok) {
+    assert.equal(listResult.kind, "aborted");
+  }
+
+  const photoController = new AbortController();
+  const photoPromise = api.getPhoto("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", photoController.signal);
+  photoController.abort();
+  const photoResult = await photoPromise;
+  assert.equal(photoResult.ok, false);
+  if (!photoResult.ok) {
+    assert.equal(photoResult.kind, "aborted");
+  }
+});
+
 test("9. searchPhotos 发 POST /api/photos/search、Bearer、解析 score", async () => {
   const calls: { url: string; method: string | undefined; auth: string | null; body: unknown }[] =
     [];
