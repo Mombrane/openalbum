@@ -2,7 +2,8 @@
 
 **状态：** planned  
 **依赖：** Phase 1；各页面依赖其背后的 API 阶段（见验收）  
-**设计：** [`docs/superpowers/specs/2026-11-06-openalbum-phase6-web-ui-design.md`](../../docs/superpowers/specs/2026-11-06-openalbum-phase6-web-ui-design.md)
+**设计：** [`docs/superpowers/specs/2026-11-06-openalbum-phase6-web-ui-design.md`](../../docs/superpowers/specs/2026-11-06-openalbum-phase6-web-ui-design.md)  
+**计划：** [`docs/superpowers/plans/2026-11-10-openalbum-phase6-web-ui.md`](../../docs/superpowers/plans/2026-11-10-openalbum-phase6-web-ui.md)
 
 ## 目标
 
