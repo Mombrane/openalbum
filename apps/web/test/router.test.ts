@@ -125,6 +125,11 @@ test("源码扫描：占位文案与静态页约束", async () => {
   ]) {
     assert.ok(css.includes(token), `index.css 缺少 ${token}`);
   }
+  assert.match(
+    css,
+    /\.library-grid[\s\S]*?grid-template-columns:\s*1fr;/,
+    "index.css 个人库窄屏应为单列 grid-template-columns: 1fr",
+  );
 
   const html = await readFile(new URL("index.html", webRoot), "utf8");
   assert.match(html, /lang="zh-CN"/);

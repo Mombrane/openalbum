@@ -181,7 +181,7 @@ a {
 
 .library-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  grid-template-columns: 1fr;
   gap: 1rem;
   min-height: 0;
 }
@@ -259,5 +259,9 @@ a {
 
   .shell-main {
     padding-bottom: 2.5rem;
+  }
+
+  .library-grid {
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
   }
 }
