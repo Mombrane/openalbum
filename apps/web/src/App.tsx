@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { NETWORK_MESSAGE, visibleMessage } from "./copy";
 import { AlbumsBlocked } from "./pages/albums-blocked";
+import { LoginPage } from "./pages/login";
 import { NotFound } from "./pages/not-found";
+import { RegisterPage } from "./pages/register";
 import { SearchPage } from "./pages/search";
 import {
   isProtectedRoute,
@@ -185,8 +187,9 @@ function renderRoute(
 ) {
   switch (route.kind) {
     case "login":
+      return <LoginPage onNavigate={onNavigate} />;
     case "register":
-      return <p className="page-hint">登录与注册表单将在下一步提供。</p>;
+      return <RegisterPage onNavigate={onNavigate} />;
     case "library":
       return (
         <section className="page-block">
