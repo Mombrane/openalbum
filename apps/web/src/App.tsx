@@ -5,6 +5,7 @@ import { LoginPage } from "./pages/login";
 import { NotFound } from "./pages/not-found";
 import { RegisterPage } from "./pages/register";
 import { LibraryPage } from "./pages/library";
+import { UploadPage } from "./pages/upload";
 import { SearchPage } from "./pages/search";
 import {
   isProtectedRoute,
@@ -194,12 +195,7 @@ function renderRoute(
     case "library":
       return <LibraryPage onNavigate={onNavigate} />;
     case "upload":
-      return (
-        <section className="page-block">
-          <h1>上传</h1>
-          <p className="page-hint">上传流程将在后续任务接入。</p>
-        </section>
-      );
+      return <UploadPage onNavigate={onNavigate} />;
     case "search":
       return <SearchPage />;
     case "keys":
