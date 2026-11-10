@@ -224,6 +224,75 @@ a {
   font-size: 0.85rem;
 }
 
+.photo-detail-image {
+  width: 100%;
+  max-height: 32rem;
+  object-fit: contain;
+  display: block;
+}
+
+.photo-detail-media {
+  margin-bottom: 0.75rem;
+}
+
+.photo-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.tag-chips li {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  font-family: "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
+  font-size: 0.9rem;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(29, 26, 22, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 200;
+}
+
+.dialog-panel {
+  max-width: 24rem;
+  width: 100%;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  padding: 1rem 1.1rem;
+  box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.12);
+}
+
+.dialog-panel h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 .key-prefix {
   overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

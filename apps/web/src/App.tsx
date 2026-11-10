@@ -7,6 +7,7 @@ import { RegisterPage } from "./pages/register";
 import { LibraryPage } from "./pages/library";
 import { UploadPage } from "./pages/upload";
 import { SearchPage } from "./pages/search";
+import { PhotoPage } from "./pages/photo";
 import {
   isProtectedRoute,
   matchPath,
@@ -222,12 +223,7 @@ function renderRoute(
     case "join":
       return <AlbumsBlocked variant="join" slug={route.slug} onNavigate={onNavigate} />;
     case "photo":
-      return (
-        <section className="page-block">
-          <h1>照片</h1>
-          <p className="page-hint">详情将在后续任务接入。</p>
-        </section>
-      );
+      return <PhotoPage id={route.id} onNavigate={onNavigate} />;
     case "notFound":
       return <NotFound loggedIn={loggedIn} onNavigate={onNavigate} />;
     default:
