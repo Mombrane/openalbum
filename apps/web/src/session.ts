@@ -96,6 +96,7 @@ export function createSessionController(deps: SessionDeps): SessionController {
   let refreshToken: string | null = null;
   let user: { id: string; email: string } | null = null;
   let notice: string | null = null;
+  let snapshot: SessionSnapshot = { user, notice };
   let timerHandle: unknown = null;
   let generation = 0;
   let inflightRefresh: Promise<RefreshOutcome> | null = null;
@@ -103,6 +104,12 @@ export function createSessionController(deps: SessionDeps): SessionController {
 
   const notify = () => {
     for (const listener of listeners) listener();
+  };
+
+  const commitSnapshot = () => {
+    if (snapshot.user === user && snapshot.notice === notice) return;
+    snapshot = { user, notice };
+    notify();
   };
 
   const cancelTimer = () => {
@@ -121,7 +128,7 @@ export function createSessionController(deps: SessionDeps): SessionController {
     }, refreshDelayMs(expiresInSeconds));
   };
 
-  const getSnapshot = (): SessionSnapshot => ({ user, notice });
+  const getSnapshot = (): SessionSnapshot => snapshot;
 
   const getAccessToken = (): string | null => accessToken;
 
@@ -140,7 +147,7 @@ export function createSessionController(deps: SessionDeps): SessionController {
     refreshToken = null;
     user = null;
     notice = nextNotice;
-    notify();
+    commitSnapshot();
   };
 
   const applyAuthBody = (body: unknown): boolean => {
@@ -152,7 +159,7 @@ export function createSessionController(deps: SessionDeps): SessionController {
     user = parsed.user;
     notice = null;
     schedule();
-    notify();
+    commitSnapshot();
     return true;
   };
 

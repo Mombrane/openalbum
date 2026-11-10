@@ -282,6 +282,24 @@ test("clear 后完成的刷新不得写回登录态", async () => {
   assert.equal(controller.getAccessToken(), null);
 });
 
+test("getSnapshot 在会话未变时返回同一引用", () => {
+  const { controller } = createHarness(async () => jsonResponse(500, {}));
+  const initial = controller.getSnapshot();
+  assert.equal(controller.getSnapshot(), initial);
+  assert.equal(initial.user, null);
+  assert.equal(initial.notice, null);
+  assert.equal(controller.applyAuthBody(VALID_AUTH_BODY), true);
+  const signedIn = controller.getSnapshot();
+  assert.notEqual(signedIn, initial);
+  assert.equal(signedIn.user?.email, "a@example.com");
+  assert.equal(controller.getSnapshot(), signedIn);
+  controller.clear(SESSION_EXPIRED);
+  const expired = controller.getSnapshot();
+  assert.equal(expired.user, null);
+  assert.equal(expired.notice, SESSION_EXPIRED);
+  assert.equal(controller.getSnapshot(), expired);
+});
+
 test("session.ts 不得使用持久化存储或 console", () => {
   const sessionPath = fileURLToPath(new URL("../src/session.ts", import.meta.url));
   const source = readFileSync(sessionPath, "utf8");

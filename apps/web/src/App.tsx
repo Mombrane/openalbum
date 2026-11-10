@@ -48,6 +48,8 @@ export function App() {
 
   const route = matchPath(pathname);
   const loggedIn = snapshot.user !== null;
+  const routeKind = route.kind;
+  const protectedRoute = isProtectedRoute(route);
 
   useLayoutEffect(() => {
     if (
@@ -59,17 +61,17 @@ export function App() {
       setPathname("/login");
       return;
     }
-    if (!loggedIn && isProtectedRoute(route) && pathname !== "/login") {
+    if (!loggedIn && protectedRoute && pathname !== "/login") {
       rememberReturnTo(pathname);
       window.history.replaceState(null, "", "/login");
       setPathname("/login");
       return;
     }
-    if (loggedIn && (route.kind === "login" || route.kind === "register") && pathname !== "/") {
+    if (loggedIn && (routeKind === "login" || routeKind === "register") && pathname !== "/") {
       window.history.replaceState(null, "", "/");
       setPathname("/");
     }
-  }, [loggedIn, pathname, route, snapshot.notice]);
+  }, [loggedIn, pathname, protectedRoute, routeKind, snapshot.notice]);
 
   const handleLogout = async () => {
     setShellNotice(null);
