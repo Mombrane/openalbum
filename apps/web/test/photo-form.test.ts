@@ -227,6 +227,8 @@ test("saveNotice", () => {
 
 test("photo.tsx 源码：轮询、对话框与无 innerHTML", async () => {
   const photo = await readFile(new URL("../src/pages/photo.tsx", import.meta.url), "utf8");
+  assert.match(photo, /\bvalidateTags\b/);
+  assert.match(photo, /validateTags\(\[\.\.\.form\.tags,\s*trimmed\]\)/);
   assert.match(photo, /\bgetPhoto\b/);
   assert.match(photo, /document\.hidden/);
   assert.match(photo, /\b5000\b/);
@@ -239,6 +241,7 @@ test("photo.tsx 源码：轮询、对话框与无 innerHTML", async () => {
   assert.equal(photo.includes("dangerouslySetInnerHTML"), false);
   const dialog = await readFile(new URL("../src/pages/dialog.tsx", import.meta.url), "utf8");
   assert.match(dialog, /Escape/);
+  assert.match(dialog, /wasOpenRef/);
 });
 
 test("App.tsx 挂载 PhotoPage", async () => {

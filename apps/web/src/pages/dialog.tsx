@@ -25,6 +25,7 @@ export function Dialog({
   returnFocusRef,
 }: DialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -69,7 +70,11 @@ export function Dialog({
   }, [open, onClose]);
 
   useEffect(() => {
-    if (open) return;
+    if (open) {
+      wasOpenRef.current = true;
+      return;
+    }
+    if (!wasOpenRef.current) return;
     const target = returnFocusRef.current;
     if (target !== null) {
       window.requestAnimationFrame(() => target.focus());

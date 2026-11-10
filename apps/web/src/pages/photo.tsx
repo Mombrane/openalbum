@@ -21,6 +21,7 @@ import {
   buildPatch,
   saveNotice,
   takenAtToLocalInput,
+  validateTags,
   type PhotoFormInput,
   type PhotoMetadataBaseline,
 } from "./photo-form";
@@ -168,7 +169,14 @@ export function PhotoPage({ id, onNavigate }: PhotoPageProps) {
     if (form === null) return;
     const trimmed = tagDraft.trim();
     if (trimmed === "") return;
-    setForm({ ...form, tags: [...form.tags, trimmed] });
+    const validated = validateTags([...form.tags, trimmed]);
+    if (!validated.ok) {
+      setFormError(validated.message);
+      errorSummaryRef.current?.focus();
+      return;
+    }
+    setFormError(null);
+    setForm({ ...form, tags: validated.tags });
     setTagDraft("");
   };
 
