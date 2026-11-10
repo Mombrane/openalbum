@@ -1,48 +1,220 @@
-const phases = [
-  { id: "1", name: "身份与 API Key", state: "未开始" },
-  { id: "2", name: "个人库与对象存储", state: "未开始" },
-  { id: "3", name: "EXIF、缩略图、描述与向量", state: "未开始" },
-  { id: "4", name: "关键词与语义检索", state: "未开始" },
-  { id: "5", name: "共享册、口令与角色", state: "未开始" },
-  { id: "6", name: "完整网页", state: "未开始" },
-];
+import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { AccountPage } from "./pages/account";
+import { AlbumsBlocked } from "./pages/albums-blocked";
+import { KeysPage } from "./pages/keys";
+import { LoginPage } from "./pages/login";
+import { NotFound } from "./pages/not-found";
+import { RegisterPage } from "./pages/register";
+import { LibraryPage } from "./pages/library";
+import { UploadPage } from "./pages/upload";
+import { SearchPage } from "./pages/search";
+import { PhotoPage } from "./pages/photo";
+import { performLogout } from "./pages/logout";
+import {
+  isProtectedRoute,
+  matchPath,
+  rememberReturnTo,
+  type Route,
+} from "./router";
+import { SESSION_EXPIRED } from "./copy";
+import { session } from "./session";
+import { Shell } from "./shell";
+
+const PRODUCT_NAME = "AI Native 共享相册";
 
 export function App() {
+  const [pathname, setPathname] = useState(() => window.location.pathname);
+  const [shellNotice, setShellNotice] = useState<string | null>(null);
+  const snapshot = useSyncExternalStore(
+    session.subscribe,
+    session.getSnapshot,
+    session.getSnapshot,
+  );
+
+  const navigate = useCallback((to: string, mode: "push" | "replace" = "push") => {
+    if (mode === "replace") {
+      window.history.replaceState(null, "", to);
+    } else {
+      window.history.pushState(null, "", to);
+    }
+    setPathname(to);
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => setPathname(window.location.pathname);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const route = matchPath(pathname);
+  const loggedIn = snapshot.user !== null;
+
+  useLayoutEffect(() => {
+    if (
+      !loggedIn &&
+      snapshot.notice === SESSION_EXPIRED &&
+      pathname !== "/login"
+    ) {
+      window.history.replaceState(null, "", "/login");
+      setPathname("/login");
+      return;
+    }
+    if (!loggedIn && isProtectedRoute(route) && pathname !== "/login") {
+      rememberReturnTo(pathname);
+      window.history.replaceState(null, "", "/login");
+      setPathname("/login");
+      return;
+    }
+    if (loggedIn && (route.kind === "login" || route.kind === "register") && pathname !== "/") {
+      window.history.replaceState(null, "", "/");
+      setPathname("/");
+    }
+  }, [loggedIn, pathname, route, snapshot.notice]);
+
+  const handleLogout = async () => {
+    setShellNotice(null);
+    const result = await performLogout(navigate);
+    if (!result.ok) {
+      setShellNotice(result.notice);
+    }
+  };
+
+  if (!loggedIn && isProtectedRoute(route)) {
+    return null;
+  }
+
+  const notice = shellNotice ?? snapshot.notice;
+
+  const content = renderRoute(route, loggedIn, navigate);
+
+  if (route.kind === "login" || route.kind === "register") {
+    return (
+      <div className="auth-shell">
+        <main id="content" className="shell-main">
+          <h1>{route.kind === "login" ? "登录" : "注册"}</h1>
+          {content}
+          <AuthLinks kind={route.kind} onNavigate={navigate} />
+        </main>
+      </div>
+    );
+  }
+
+  if (route.kind === "join" && !loggedIn) {
+    return (
+      <div className="guest-join">
+        <header className="guest-join-header">
+          <a
+            href="/"
+            onClick={(event) => {
+              event.preventDefault();
+              navigate("/", "push");
+            }}
+          >
+            {PRODUCT_NAME}
+          </a>
+          <a
+            href="/login"
+            onClick={(event) => {
+              event.preventDefault();
+              navigate("/login", "push");
+            }}
+          >
+            登录
+          </a>
+        </header>
+        <main id="content" className="shell-main">
+          {content}
+        </main>
+      </div>
+    );
+  }
+
+  if (loggedIn) {
+    return (
+      <Shell
+        pathname={pathname}
+        email={snapshot.user?.email ?? ""}
+        notice={notice}
+        onNavigate={navigate}
+        onLogout={() => void handleLogout()}
+      >
+        {content}
+      </Shell>
+    );
+  }
+
   return (
-    <main>
-      <p className="eyebrow">Phase 0 · 脚手架</p>
-      <h1>AI Native 共享相册</h1>
-      <p className="lead">
-        人用网页管理照片，个人 Agent 用 API 做同一件事。这一页只说明前端工程已经接进仓库，业务界面要到
-        Phase 6 才替换这里的占位。
-      </p>
-
-      <section>
-        <h2>现在可以用</h2>
-        <ul>
-          <li>
-            规格入口 <code>specs/SPEC.md</code>
-          </li>
-          <li>
-            API 存活探针 <code>GET /health</code>
-          </li>
-          <li>
-            部署占位 <code>deploy/</code>
-          </li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>尚未开始</h2>
-        <ol>
-          {phases.map((phase) => (
-            <li key={phase.id}>
-              <span>{phase.name}</span>
-              <span className="state">{phase.state}</span>
-            </li>
-          ))}
-        </ol>
-      </section>
+    <main id="content" className="shell-main">
+      {content}
     </main>
   );
+}
+
+function AuthLinks({
+  kind,
+  onNavigate,
+}: {
+  kind: "login" | "register";
+  onNavigate: (to: string, mode?: "push" | "replace") => void;
+}) {
+  const go = (href: string) => (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    onNavigate(href, "push");
+  };
+  return (
+    <p>
+      {kind === "login" ? (
+        <>
+          没有账户？{" "}
+          <a href="/register" onClick={go("/register")}>
+            注册
+          </a>
+        </>
+      ) : (
+        <>
+          已有账户？{" "}
+          <a href="/login" onClick={go("/login")}>
+            登录
+          </a>
+        </>
+      )}
+    </p>
+  );
+}
+
+function renderRoute(
+  route: Route,
+  loggedIn: boolean,
+  onNavigate: (to: string, mode?: "push" | "replace") => void,
+) {
+  switch (route.kind) {
+    case "login":
+      return <LoginPage onNavigate={onNavigate} />;
+    case "register":
+      return <RegisterPage onNavigate={onNavigate} />;
+    case "library":
+      return <LibraryPage onNavigate={onNavigate} />;
+    case "upload":
+      return <UploadPage onNavigate={onNavigate} />;
+    case "search":
+      return <SearchPage />;
+    case "keys":
+      return <KeysPage onNavigate={onNavigate} />;
+    case "account":
+      return <AccountPage onNavigate={onNavigate} />;
+    case "albums":
+      return <AlbumsBlocked variant="list" onNavigate={onNavigate} />;
+    case "albumNew":
+      return <AlbumsBlocked variant="new" onNavigate={onNavigate} />;
+    case "album":
+      return <AlbumsBlocked variant="detail" onNavigate={onNavigate} />;
+    case "join":
+      return <AlbumsBlocked variant="join" slug={route.slug} onNavigate={onNavigate} />;
+    case "photo":
+      return <PhotoPage id={route.id} onNavigate={onNavigate} />;
+    case "notFound":
+      return <NotFound loggedIn={loggedIn} onNavigate={onNavigate} />;
+    default:
+      return <NotFound loggedIn={loggedIn} onNavigate={onNavigate} />;
+  }
 }

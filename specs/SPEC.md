@@ -34,7 +34,7 @@
 | 3 | [phases/03-processing-pipeline.md](phases/03-processing-pipeline.md) | done | EXIF、缩略图、视觉描述、嵌入、任务 |
 | 4 | [phases/04-search.md](phases/04-search.md) | done | 关键词与向量检索 |
 | 5 | [phases/05-shared-albums.md](phases/05-shared-albums.md) | planned | 共享册、口令、角色 |
-| 6 | [phases/06-web-ui.md](phases/06-web-ui.md) | planned | React 界面与端到端主路径 |
+| 6 | [phases/06-web-ui.md](phases/06-web-ui.md) | in_progress | React 界面与端到端主路径 |
 
 ## 如何新增阶段
 
