@@ -100,37 +100,6 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
       }
       const fail = apiFailure(result);
       const action = uploadFailure("complete", fail);
-      if (action.kind === "finish-via-complete") {
-        const retry = await api.completeUpload(id);
-        if (runId !== runIdRef.current) return;
-        if (retry.ok) {
-          resetForm();
-          navigateToPhoto(retry.data.id);
-          return;
-        }
-        if (
-          retry.kind === "http" &&
-          retry.status === 409 &&
-          retry.code === "upload_completed" &&
-          sessionRef.current.photoId !== null
-        ) {
-          const savedPhotoId = sessionRef.current.photoId;
-          resetForm();
-          navigateToPhoto(savedPhotoId);
-          return;
-        }
-        setBusy(false);
-        setStepLabel(null);
-        setAutoCompleteAttempts(null);
-        setAwaitingContinue(false);
-        setFailure({
-          step: "complete",
-          failure: apiFailure(retry),
-          action: uploadFailure("complete", apiFailure(retry)),
-          message: uploadFailureVisibleMessage("complete", apiFailure(retry)),
-        });
-        return;
-      }
       if (action.kind === "closed") {
         resetForm();
         setTerminalMessage(UPLOAD_CLOSED_MESSAGE);
@@ -387,7 +356,12 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
       <p>
         <label>
           选择文件
-          <input type="file" accept="image/*,.heic,.heif,.cr2,.nef,.arw,.dng" onChange={handleFileChange} />
+          <input
+            type="file"
+            accept="image/*,.heic,.heif,.cr2,.nef,.arw,.dng"
+            disabled={busy}
+            onChange={handleFileChange}
+          />
         </label>
       </p>
       <p className="button-row">
