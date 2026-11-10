@@ -12,9 +12,9 @@ test("Vite 只做同源代理，不增加跨源变量", async () => {
   assert.equal(source.includes("VITE_"), false);
 });
 
-test("两个开关都是字面量 false，且不读环境", async () => {
+test("搜索为 true、共享册为 false，且不读环境", async () => {
   const source = await readFile(new URL("../src/features.ts", import.meta.url), "utf8");
-  assert.match(source, /export const searchCallsEnabled = false;/);
+  assert.match(source, /export const searchCallsEnabled = true;/);
   assert.match(source, /export const albumCallsEnabled = false;/);
   assert.equal(source.includes("import.meta.env"), false);
   assert.equal(source.includes("localStorage"), false);

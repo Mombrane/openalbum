@@ -329,7 +329,48 @@ test("7. 照片白名单键；listPhotos 缺少 photos 返回 ok:false", async (
 test("8. api.ts 源码不含禁止字符串", () => {
   const apiPath = fileURLToPath(new URL("../src/api.ts", import.meta.url));
   const source = readFileSync(apiPath, "utf8");
-  for (const forbidden of ["photos/search", "album", "GET /me", "localStorage"] as const) {
+  for (const forbidden of ["album", "GET /me", "localStorage"] as const) {
     assert.equal(source.includes(forbidden), false, `forbidden token: ${forbidden}`);
+  }
+});
+
+test("9. searchPhotos 发 POST /api/photos/search、Bearer、解析 score", async () => {
+  const calls: { url: string; method: string | undefined; auth: string | null; body: unknown }[] =
+    [];
+  const session = createMockSession({ accessToken: "tok-search" });
+  const api = createApi({
+    session,
+    fetch: async (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      const auth = new Headers(init?.headers).get("Authorization");
+      const body = init?.body === undefined ? null : JSON.parse(String(init.body));
+      calls.push({ url, method: init?.method, auth, body });
+      return jsonResponse(200, {
+        photos: [
+          { ...PHOTO_RAW, score: null },
+          { ...PHOTO_RAW, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", score: 1 },
+        ],
+        nextCursor: "nc1",
+      });
+    },
+  });
+
+  const result = await api.searchPhotos({
+    mode: "semantic",
+    q: "海边",
+    limit: 20,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "/api/photos/search");
+  assert.equal(calls[0].method, "POST");
+  assert.equal(calls[0].auth, "Bearer tok-search");
+  assert.deepEqual(calls[0].body, { mode: "semantic", q: "海边", limit: 20 });
+  assert.equal(calls[0].url.includes("?"), false);
+  if (result.ok) {
+    assert.equal(result.data.photos.length, 2);
+    assert.equal(result.data.photos[0]!.score, null);
+    assert.equal(result.data.photos[1]!.score, 1);
+    assert.equal(result.data.nextCursor, "nc1");
   }
 });

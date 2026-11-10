@@ -71,7 +71,22 @@ export type Api = {
   listKeys: () => Promise<ApiResult<{ apiKeys: ApiKey[] }>>;
   createKey: (name: string) => Promise<ApiResult<{ apiKey: ApiKey; secret: string }>>;
   revokeKey: (id: string) => Promise<ApiResult<null>>;
+  searchPhotos: (
+    body: SearchRequestBody,
+  ) => Promise<ApiResult<{ photos: SearchPhoto[]; nextCursor: string | null }>>;
 };
+
+export type SearchRequestBody = {
+  mode: "keyword" | "semantic";
+  q: string;
+  limit: 20;
+  tags?: string[];
+  takenFrom?: string;
+  takenTo?: string;
+  cursor?: string;
+};
+
+export type SearchPhoto = Photo & { score: number | null };
 
 type HttpFail = Extract<ApiResult<never>, { kind: "http" }>;
 
@@ -93,6 +108,18 @@ function parseErrorBody(body: unknown): { code: string | null; serverMessage: st
 
 function parseString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function parseSearchPhoto(raw: unknown): SearchPhoto | null {
+  const photo = parsePhoto(raw);
+  if (photo === null) return null;
+  if (typeof raw !== "object" || raw === null) return null;
+  const score = (raw as Record<string, unknown>).score;
+  if (score === null) return { ...photo, score: null };
+  if (typeof score === "number" && Number.isFinite(score)) {
+    return { ...photo, score };
+  }
+  return null;
 }
 
 function parsePhoto(raw: unknown): Photo | null {
@@ -498,6 +525,35 @@ export function createApi(deps: { session: SessionController; fetch: typeof fetc
         status,
         data: null,
       })),
+
+    searchPhotos: (body) =>
+      runJson(
+        "/api/photos/search",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        true,
+        (responseBody, status) => {
+          if (typeof responseBody !== "object" || responseBody === null) return malformedHttp(status);
+          const record = responseBody as Record<string, unknown>;
+          if (!Array.isArray(record.photos)) return malformedHttp(status);
+          const photos: SearchPhoto[] = [];
+          for (const item of record.photos) {
+            const photo = parseSearchPhoto(item);
+            if (photo === null) return malformedHttp(status);
+            photos.push(photo);
+          }
+          const nextCursor =
+            record.nextCursor === null
+              ? null
+              : typeof record.nextCursor === "string"
+                ? record.nextCursor
+                : null;
+          return { ok: true, status, data: { photos, nextCursor } };
+        },
+      ),
   };
 }
 
